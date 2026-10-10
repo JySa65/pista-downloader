@@ -2,12 +2,13 @@
 import os
 import threading
 from collections.abc import Callable
+from pathlib import Path
 
 import yt_dlp
-from yt_dlp.utils import DownloadCancelled, sanitize_filename
+from yt_dlp.utils import DownloadCancelled, download_range_func, sanitize_filename
 
 from .models import Track
-from .urls import video_url
+from .urls import video_id, video_url
 
 Cancelled = DownloadCancelled  # raised by download() when cancel_event is set
 
@@ -96,3 +97,27 @@ def download(
         return None  # skipped: already in download archive
     on_progress(100.0, "Listo")
     return downloads[0]["filepath"]
+
+
+def preview_clip_path(url: str, dest_dir: str | Path) -> Path:
+    return Path(dest_dir) / f"{video_id(url)}.mp4"
+
+
+def preview_clip(url: str, dest_dir: str | Path, seconds: int = 30) -> Path:
+    """Low-res mp4 (video+audio) of the first `seconds`, cached per video id."""
+    path = preview_clip_path(url, dest_dir)
+    if path.exists():
+        return path
+    opts = {
+        "format": "bv*[height<=360][ext=mp4]+ba[ext=m4a]/b[height<=360]",
+        "download_ranges": download_range_func(None, [(0, seconds)]),
+        "merge_output_format": "mp4",
+        "outtmpl": str(path.with_suffix(".%(ext)s")),
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+        "noprogress": True,
+    }
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        ydl.download([video_url(url)])
+    return path

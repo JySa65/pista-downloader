@@ -19,7 +19,11 @@ def classify(url: str) -> str:
     return "mix" if list_id.startswith("RD") else "playlist"
 
 
+def video_id(url: str) -> str | None:
+    return _parts(url)[0]
+
+
 def video_url(url: str) -> str:
     """Canonical watch URL without list/index/start_radio params."""
-    vid, _ = _parts(url)
+    vid = video_id(url)
     return f"https://www.youtube.com/watch?v={vid}" if vid else url.strip()
