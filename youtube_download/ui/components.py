@@ -1,5 +1,7 @@
-"""Track list and preview dialog."""
+"""Download queue, preview dialog and Mix dialog."""
 import tempfile
+import webbrowser
+from collections.abc import Callable
 from pathlib import Path
 
 from nicegui import app, run, ui
@@ -20,75 +22,155 @@ def hhmmss(seconds: float | None) -> str:
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 
-def open_preview(track: Track) -> None:
-    """Dialog with the YouTube embed; a button swaps in a local 30 s clip."""
-    with ui.dialog() as dialog, ui.card().classes("w-[860px] max-w-full"):
-        with ui.row().classes("w-full items-center"):
-            ui.label(track.title).classes("text-lg font-medium grow")
-            ui.button(icon="close", on_click=dialog.close).props("flat round dense")
-        player = ui.column().classes("w-full")
-        with player:
-            ui.element("iframe").props(
-                f'src="https://www.youtube.com/embed/{track.id}?autoplay=1" '
-                'allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen'
-            ).classes("w-full aspect-video rounded")
+def button(text: str, cls: str, on_click: Callable | None = None, stop: bool = False) -> ui.element:
+    """Plain <button> styled by theme classes; stop=True keeps the click from reaching the row."""
+    b = ui.element("button").classes(cls)
+    with b:
+        ui.label(text)
+    if on_click:
+        b.on("click.stop" if stop else "click", on_click)
+    return b
 
-        async def load_clip() -> None:
-            clip_btn.props("loading")
+
+async def ask_mix(limit: int) -> str | None:
+    with ui.dialog() as dialog, ui.card().classes("yt-modal w-[420px] max-h-[90vh] overflow-auto p-[22px] gap-[14px]"):
+        ui.label("Esta URL es parte de un Mix").classes("text-[15px] font-semibold")
+        ui.label(f"¿Solo este video o el Mix completo (máx. {limit})?").classes("text-[13px] yt-muted")
+        with ui.row().classes("w-full justify-end gap-2 mt-1"):
+            button("Solo este video", "yt-btn", lambda: dialog.submit("video"))
+            button("Mix completo", "yt-primary", lambda: dialog.submit("mix"))
+    choice = await dialog
+    dialog.delete()
+    return choice
+
+
+def open_preview(track: Track) -> None:
+    """YouTube embed first; the clip button swaps in a local 30 s clip (and back)."""
+    embed = f"https://www.youtube.com/embed/{track.id}?autoplay=1"
+    showing_clip = False
+
+    with ui.dialog() as dialog, ui.card().classes("yt-modal w-[780px] max-h-[90vh] p-0 gap-0 overflow-auto no-wrap"):
+        with ui.row().classes("w-full items-center justify-between no-wrap gap-4 py-[14px] pl-5 pr-4"):
+            with ui.column().classes("min-w-0 gap-0.5"):
+                ui.label(track.title).classes("text-sm font-semibold truncate w-full")
+                ui.label(f"{track.channel} · {hhmmss(track.duration)}").classes("text-xs yt-muted")
+            button("×", "yt-ghost w-8 h-8 text-lg", dialog.close)
+        player = ui.element("div").classes("mx-4 aspect-video rounded-lg overflow-hidden").style("width: calc(100% - 32px)")
+
+        def show_embed() -> None:
+            nonlocal showing_clip
+            showing_clip = False
+            player.clear()
+            with player:
+                ui.element("iframe").props(
+                    f'src="{embed}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen'
+                ).classes("w-full h-full border-0")
+            clip_text.text = "¿No carga? Ver clip de 30 s"
+
+        async def toggle_clip() -> None:
+            nonlocal showing_clip
+            if showing_clip:
+                show_embed()
+                return
+            clip_text.text = "Descargando clip…"
             try:
                 path = await run.io_bound(preview_clip, track.url, PREVIEW_DIR)
             except Exception as e:
                 ui.notify(f"No se pudo descargar el clip: {e}", type="negative")
-                clip_btn.props(remove="loading")
+                clip_text.text = "¿No carga? Ver clip de 30 s"
                 return
             if path is None:  # app shutting down
                 return
             player.clear()
             with player:
-                ui.video(f"/media/{path.name}", autoplay=True).classes("w-full rounded")
-            clip_btn.set_visibility(False)
+                ui.video(f"/media/{path.name}", autoplay=True).classes("w-full h-full")
+            showing_clip = True
+            clip_text.text = "Ver video completo"
 
-        clip_btn = ui.button("¿No carga? Ver clip de 30 s", icon="movie", on_click=load_clip).props("flat")
+        with ui.row().classes("w-full items-center justify-between px-4 py-3"):
+            with ui.element("button").classes("yt-link").on("click", toggle_clip):
+                clip_text = ui.label()
+            button("Abrir en el navegador", "yt-btn h-8 text-xs", lambda: webbrowser.open(track.url))
+        show_embed()
     dialog.on("hide", dialog.delete)
     dialog.open()
 
 
-class TrackList:
-    """Checkable list of tracks with a progress bar per row."""
+STATES = {  # state -> (pill class, fill class, label)
+    "queued": ("", "", "En cola"),
+    "running": ("run", "", None),  # label is the percentage
+    "done": ("ok", "ok", "Listo"),
+    "skipped": ("ok", "ok", "Ya estaba"),
+    "error": ("err", "err", "Error"),
+    "stopped": ("", "", "Detenida"),
+}
 
-    def __init__(self) -> None:
+
+class Queue:
+    """Checkable track rows with a status pill and progress bar each."""
+
+    def __init__(self, on_change: Callable[[], None]) -> None:
         self.tracks: list[Track] = []
         self.checked: dict[str, bool] = {}
-        self.bars: dict[str, ui.linear_progress] = {}
+        self.state: dict[str, tuple[str, float]] = {}
+        self.rows: dict[str, tuple[ui.element, ui.element, ui.label]] = {}
+        self.on_change = on_change
         self.render()
 
     def set_tracks(self, tracks: list[Track]) -> None:
         self.tracks = tracks
         self.checked = {t.id: True for t in tracks}
+        self.state = {t.id: ("queued", 0.0) for t in tracks}
         self.render.refresh()
+        self.on_change()
 
     def select_all(self, value: bool) -> None:
         self.checked = {t.id: value for t in self.tracks}
         self.render.refresh()
+        self.on_change()
+
+    def toggle(self, track_id: str) -> None:
+        self.checked[track_id] = not self.checked[track_id]
+        self.render.refresh()
+        self.on_change()
 
     def selected(self) -> list[Track]:
         return [t for t in self.tracks if self.checked.get(t.id)]
 
+    def set_state(self, track_id: str, state: str, pct: float = 0.0) -> None:
+        self.state[track_id] = (state, pct)
+        if track_id not in self.rows:
+            return
+        fill, pill_el, pill = self.rows[track_id]
+        pill_cls, fill_cls, label = STATES[state]
+        width = 100 if state in ("done", "skipped", "error") else pct
+        fill.classes(replace=f"yt-fill {fill_cls}").style(f"width: {width:.0f}%")
+        pill_el.classes(replace=f"yt-pill {pill_cls}")
+        pill.text = label or f"{pct:.0f}%"
+
     @ui.refreshable_method
     def render(self) -> None:
-        self.bars = {}
+        self.rows = {}
         if not self.tracks:
-            ui.label("Pega una o más URLs y pulsa «Cargar».").classes("text-gray-500 py-8 self-center")
+            with ui.element("div").classes("h-full w-full flex items-center justify-center"):
+                ui.label("Pega una o más URLs y pulsa «Cargar».").classes("text-[13px] yt-subtle")
             return
         for t in self.tracks:
-            with ui.card().classes("w-full p-2").props("flat bordered"):
-                with ui.row().classes("w-full items-center no-wrap gap-3"):
-                    ui.checkbox(value=self.checked[t.id],
-                                on_change=lambda e, t=t: self.checked.__setitem__(t.id, e.value))
-                    if t.thumbnail:
-                        ui.image(t.thumbnail).classes("w-28 rounded").props("ratio=1.78")
-                    with ui.column().classes("grow gap-0 min-w-0"):
-                        ui.label(t.title).classes("font-medium truncate w-full")
-                        ui.label(f"{t.channel} · {hhmmss(t.duration)}").classes("text-sm text-gray-500")
-                        self.bars[t.id] = ui.linear_progress(value=0, show_value=False).classes("mt-1")
-                    ui.button("▶ Ver", on_click=lambda t=t: open_preview(t)).props("flat dense")
+            on = self.checked[t.id]
+            with ui.element("div").classes("yt-row").on("click", lambda t=t: self.toggle(t.id)):
+                with ui.element("div").classes("yt-check on" if on else "yt-check"):
+                    ui.label("✓" if on else "")
+                if t.thumbnail:
+                    ui.element("img").props(f'src="{t.thumbnail}" loading="lazy"').classes("yt-thumb")
+                else:
+                    ui.element("div").classes("yt-thumb")
+                with ui.column().classes("min-w-0 gap-[3px]"):
+                    ui.label(t.title).classes("text-[13px] font-medium truncate w-full")
+                    ui.label(f"{t.channel} · {hhmmss(t.duration)}").classes("text-xs yt-muted")
+                    with ui.element("div").classes("yt-track w-full"):
+                        fill = ui.element("div").classes("yt-fill")
+                with ui.element("div").classes("yt-pill") as pill_el:
+                    pill = ui.label()
+                button("▶ Ver", "yt-link justify-self-end", lambda t=t: open_preview(t), stop=True)
+            self.rows[t.id] = (fill, pill_el, pill)
+            self.set_state(t.id, *self.state[t.id])

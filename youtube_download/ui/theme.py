@@ -1,0 +1,132 @@
+"""Design tokens and component classes from the Claude Design mockup (light + dark)."""
+from nicegui import ui
+
+FONTS = (
+    '<link rel="preconnect" href="https://fonts.googleapis.com">'
+    '<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600'
+    '&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">'
+)
+
+CSS = """
+:root {
+  --app: #f6f6f8; --bar: #ffffff; --panel: #f0f0f3; --field: #ffffff; --line: #e3e4e8;
+  --field-border: #d8dade; --btn-border: #d0d2d7; --box-border: #a8abb2; --btn: #ffffff;
+  --btn-hover: #ebecef; --row-hover: #f0f0f3; --stripe: #e8e9ec;
+  --text: #1b1c1f; --text-strong: #111214; --text-2: #3a3c42; --text-btn: #2a2c31;
+  --muted: #62656c; --subtle: #868991; --log: #62656c; --faint: #9a9da4; --max: #000000;
+  --accent: #3d82d1; --accent-hover: #2f74c0; --on-accent: #ffffff; --link: #2a6db8;
+  --accent-soft: #e2edfa; --accent-text: #1f5fa8;
+  --danger-border: #efc3c3; --danger: #c23b3b; --danger-soft: #fdeeee;
+  --ok-soft: #e1f4e7; --ok: #1f7a3d; --ok-bar: #3a9a5a;
+}
+:root[data-theme="dark"] {
+  --app: #141517; --bar: #1a1b1e; --panel: #17181a; --field: #0f1012; --line: #26282c;
+  --field-border: #2a2c31; --btn-border: #2f3136; --box-border: #45484f; --btn: #1e2023;
+  --btn-hover: #25272b; --row-hover: #1b1c1f; --stripe: #202226;
+  --text: #e6e7ea; --text-strong: #f2f3f5; --text-2: #c9cbd0; --text-btn: #d4d6da;
+  --muted: #8a8d94; --subtle: #6b6e75; --log: #7d8088; --faint: #5d6067; --max: #ffffff;
+  --accent: #5b9be0; --accent-hover: #73abe8; --on-accent: #0b1a2b; --link: #7fb2ea;
+  --accent-soft: #1c2836; --accent-text: #9cc4f0;
+  --danger-border: #5a2a2c; --danger: #f08a8a; --danger-soft: #2a1718;
+  --ok-soft: #16301f; --ok: #7fd39a; --ok-bar: #4fae6e;
+}
+:root { --q-primary: var(--accent); }
+html, body { background: var(--app); color: var(--text); font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased; overflow: hidden; }
+/* The page never scrolls; each region scrolls on its own (min-height: 0 on flex/grid children). */
+.q-page, .nicegui-content { padding: 0; gap: 0; height: 100vh; min-height: 0 !important; overflow: hidden;
+  flex-wrap: nowrap; }
+.mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+.yt-bar { height: 52px; flex-shrink: 0; border-bottom: 1px solid var(--line); background: var(--bar); padding: 0 16px;
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; width: 100%; }
+.yt-panel { background: var(--panel); }
+.yt-line-r { border-right: 1px solid var(--line); } .yt-line-l { border-left: 1px solid var(--line); }
+.yt-line-t { border-top: 1px solid var(--line); } .yt-line-b { border-bottom: 1px solid var(--line); }
+.yt-label { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.yt-muted { color: var(--muted); } .yt-subtle { color: var(--subtle); } .yt-text2 { color: var(--text-2); }
+.yt-box { background: var(--field); border: 1px solid var(--field-border); border-radius: 8px; }
+.yt-field { background: var(--field); border: 1px solid var(--field-border); border-radius: 7px; height: 36px;
+  padding: 0 12px; box-sizing: border-box; }
+.yt-field:focus-within { border-color: var(--accent); }
+.yt-field .q-field__control, .yt-field .q-field__native { height: 34px; min-height: 34px; color: var(--text);
+  font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+.yt-field .q-field__native::placeholder { color: var(--subtle); opacity: 1; }
+.yt-btn { height: 36px; padding: 0 12px; border: 1px solid var(--btn-border); background: var(--btn); color: var(--text-btn);
+  font: inherit; font-size: 13px; font-weight: 500; border-radius: 7px; cursor: pointer; }
+.yt-btn:hover { background: var(--btn-hover); }
+.yt-primary { height: 36px; padding: 0 20px; border: 0; background: var(--accent); color: var(--on-accent);
+  font: inherit; font-size: 13px; font-weight: 600; border-radius: 7px; cursor: pointer; }
+.yt-primary:hover { background: var(--accent-hover); }
+.yt-danger { height: 38px; padding: 0 16px; border: 1px solid var(--danger-border); background: transparent; color: var(--danger);
+  font: inherit; font-size: 13px; font-weight: 500; border-radius: 7px; cursor: pointer; }
+.yt-danger:hover { background: var(--danger-soft); }
+button:disabled { opacity: .45; cursor: default; pointer-events: none; }
+.yt-link { border: 0; background: transparent; color: var(--link); font: inherit; font-size: 12px; font-weight: 500;
+  padding: 5px 8px; border-radius: 5px; cursor: pointer; white-space: nowrap; }
+.yt-link:hover { background: var(--btn-hover); }
+.yt-ghost { border: 0; background: transparent; color: var(--muted); border-radius: 6px; cursor: pointer; line-height: 1; }
+.yt-ghost:hover { background: var(--btn-hover); color: var(--text); }
+.yt-seg { display: flex; gap: 2px; padding: 3px; background: var(--field); border: 1px solid var(--field-border); border-radius: 8px; }
+.yt-seg > button { border: 0; cursor: pointer; font: inherit; font-size: 13px; font-weight: 500; padding: 6px 18px;
+  border-radius: 6px; background: transparent; color: var(--muted); }
+.yt-seg > button.on { background: var(--field-border); color: var(--text-strong); }
+.yt-seg.small { border-radius: 7px; display: grid; grid-template-columns: repeat(5, 1fr); }
+.yt-seg.two { border-radius: 7px; display: grid; grid-template-columns: 1fr 1fr; }
+.yt-seg.two > button { font-size: 12px; padding: 6px 0; border-radius: 5px; }
+.yt-seg.small > button { font-family: 'IBM Plex Mono', monospace; font-size: 12px; padding: 6px 0; border-radius: 5px; }
+.yt-toggle { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 12px; font-weight: 500;
+  padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+.yt-toggle.on { background: var(--accent-soft); color: var(--link); }
+.yt-linkrow { display: grid; grid-template-columns: 18px 64px minmax(0,1fr) 22px; gap: 8px; align-items: center;
+  padding: 6px 6px 6px 8px; border-radius: 6px; background: var(--btn); border: 1px solid var(--line); }
+.yt-tag { font-size: 10px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; text-align: center;
+  padding: 2px 0; border-radius: 4px; background: var(--line); color: var(--muted); }
+.yt-tag.list { background: var(--accent-soft); color: var(--link); }
+.yt-row { display: grid; grid-template-columns: 20px 64px minmax(0,1fr) 100px 64px; gap: 14px; align-items: center;
+  padding: 10px 8px; border-radius: 8px; cursor: pointer; }
+.yt-row:hover { background: var(--row-hover); }
+.yt-check { width: 16px; height: 16px; border-radius: 4px; border: 1.5px solid var(--box-border); display: flex;
+  align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: var(--on-accent); }
+.yt-check.on { background: var(--accent); border-color: var(--accent); }
+.yt-thumb { width: 64px; height: 36px; border-radius: 5px; border: 1px solid var(--field-border); object-fit: cover;
+  background: repeating-linear-gradient(135deg, var(--stripe) 0 6px, var(--bar) 6px 12px); }
+.yt-cover { aspect-ratio: 1; border-radius: 10px; border: 1px solid var(--field-border); display: flex;
+  align-items: center; justify-content: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--faint);
+  background: repeating-linear-gradient(135deg, var(--stripe) 0 10px, var(--bar) 10px 20px); }
+.yt-track { height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; margin-top: 3px; }
+.yt-track.big { height: 4px; margin: 0; }
+.yt-fill { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+.yt-fill.ok { background: var(--ok-bar); } .yt-fill.err { background: var(--danger); }
+.yt-pill { justify-self: end; font-size: 11px; font-weight: 500; padding: 3px 8px; border-radius: 999px;
+  background: var(--btn); color: var(--muted); white-space: nowrap; }
+.yt-pill.run { background: var(--accent-soft); color: var(--link); }
+.yt-pill.ok { background: var(--ok-soft); color: var(--ok); }
+.yt-pill.err { background: var(--danger-soft); color: var(--danger); }
+.yt-log { font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 1.7; color: var(--log);
+  background: var(--field); border: 1px solid var(--field-border); border-radius: 7px; padding: 10px 12px; }
+.yt-modal { background: var(--bar); color: var(--text); border: 1px solid var(--btn-border); border-radius: 12px;
+  box-shadow: 0 20px 50px rgba(0,0,0,.35); max-width: none; }
+.yt-libhead, .yt-librow { display: grid; grid-template-columns: 32px minmax(0,1fr) 160px 60px; gap: 14px; align-items: center; }
+.yt-libhead { padding: 6px 32px; margin: 0 16px; font-size: 11px; font-weight: 600; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--subtle); border-bottom: 1px solid var(--line); }
+.yt-librow { padding: 9px 16px; border-radius: 7px; cursor: pointer; }
+.yt-librow:hover { background: var(--btn); }
+.yt-librow.cur { background: var(--accent-soft); }
+.yt-librow.cur .t { color: var(--accent-text); } .yt-librow.cur .n { color: var(--link); }
+.yt-play { width: 48px; height: 48px; border: 0; border-radius: 50%; background: var(--text); color: var(--app);
+  font-size: 16px; cursor: pointer; }
+.yt-play:hover { background: var(--max); }
+.yt-skip { width: 40px; height: 40px; border: 0; border-radius: 50%; background: transparent; color: var(--text-2);
+  font-size: 14px; cursor: pointer; }
+.yt-skip:hover { background: var(--btn-hover); }
+.yt-menu { background: var(--bar); border: 1px solid var(--btn-border); border-radius: 9px; padding: 6px; }
+.yt-menu .q-item { color: var(--text-2); border-radius: 6px; min-height: 32px; }
+"""
+
+
+def apply() -> None:
+    ui.add_head_html(FONTS + f"<style>{CSS}</style>")
+
+
+def set_theme(dark: bool) -> None:
+    ui.run_javascript(f"document.documentElement.dataset.theme = '{'dark' if dark else 'light'}'")

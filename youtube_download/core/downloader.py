@@ -1,5 +1,4 @@
 """yt-dlp wrapper: list tracks without downloading, download one track as MP3."""
-import os
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -12,7 +11,25 @@ from .urls import video_id, video_url
 
 Cancelled = DownloadCancelled  # raised by download() when cancel_event is set
 
-ARCHIVE_NAME = ".downloaded.txt"
+ARCHIVES = {"audio": ".downloaded-audio.txt", "video": ".downloaded-video.txt"}
+
+
+def format_opts(fmt: str, quality: str) -> dict:
+    """yt-dlp options for 'audio' (MP3 at `quality` kbps) or 'video' (MP4 up to `quality`, e.g. '720p', '4K')."""
+    if fmt == "audio":
+        return {
+            "format": "bestaudio/best",
+            "postprocessors": [
+                {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": quality}
+            ],
+        }
+    if fmt == "video":
+        h = 2160 if quality.upper() == "4K" else int(quality.rstrip("p"))
+        return {
+            "format": f"bv*[height<={h}][ext=mp4]+ba[ext=m4a]/b[height<={h}]",
+            "merge_output_format": "mp4",
+        }
+    raise ValueError(f"unknown format: {fmt}")
 
 
 def _thumbnail(entry: dict) -> str | None:
@@ -54,13 +71,14 @@ def list_tracks(url: str, kind: str, mix_limit: int = 50) -> list[Track]:
 
 def download(
     track: Track,
-    outdir: str,
-    kbps: str = "192",
+    outdir: str | Path,
+    quality: str = "192",
     subfolder: str = "",
     on_progress: Callable[[float, str], None] = lambda pct, msg: None,
     cancel_event: threading.Event | None = None,
+    fmt: str = "audio",
 ) -> str | None:
-    """Download track as MP3. Returns the real file path, or None if already archived.
+    """Download track as MP3 or MP4. Returns the real file path, or None if already archived.
 
     Raises Cancelled when cancel_event is set mid-download.
     """
@@ -72,17 +90,15 @@ def download(
             pct = d.get("downloaded_bytes", 0) / total * 100 if total else 0.0
             on_progress(pct, f"Descargando… {pct:0.1f}%")
         elif d.get("status") == "finished":
-            on_progress(95.0, "Convirtiendo a MP3…")
+            on_progress(95.0, "Procesando…")
 
-    target = os.path.join(outdir, sanitize_filename(subfolder)) if subfolder else outdir
+    target = Path(outdir) / sanitize_filename(subfolder) if subfolder else Path(outdir)
     opts = {
-        "format": "bestaudio/best",
+        **format_opts(fmt, quality),
         "noplaylist": True,
-        "outtmpl": os.path.join(target, "%(title)s.%(ext)s"),
-        "download_archive": os.path.join(outdir, ARCHIVE_NAME),
-        "postprocessors": [
-            {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": kbps}
-        ],
+        "windowsfilenames": True,  # portable names on every OS (reserved chars, trailing dots/spaces)
+        "outtmpl": str(target / "%(title)s.%(ext)s"),
+        "download_archive": str(Path(outdir) / ARCHIVES[fmt]),
         "progress_hooks": [hook],
         "quiet": True,
         "no_warnings": True,
@@ -112,6 +128,7 @@ def preview_clip(url: str, dest_dir: str | Path, seconds: int = 30) -> Path:
         "format": "bv*[height<=360][ext=mp4]+ba[ext=m4a]/b[height<=360]",
         "download_ranges": download_range_func(None, [(0, seconds)]),
         "merge_output_format": "mp4",
+        "windowsfilenames": True,
         "outtmpl": str(path.with_suffix(".%(ext)s")),
         "noplaylist": True,
         "quiet": True,
