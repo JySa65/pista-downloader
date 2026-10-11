@@ -7,6 +7,7 @@ import re
 import sys
 import threading
 import time
+import webbrowser
 from pathlib import Path
 
 from nicegui import app, native, run, ui
@@ -21,6 +22,7 @@ from yt_dlp.version import __version__ as yt_dlp_version
 from youtube_download.core.system import (
     default_outdir, find_deno, find_ffmpeg, has_ffmpeg, log_dir, open_path, read_clipboard, reveal_label, reveal_path,
 )
+from youtube_download.core.report import current_os, issue_url
 from youtube_download.core.urls import classify
 
 from . import theme
@@ -207,6 +209,8 @@ def index() -> None:
                     last_log = ui.label("Listo.").classes("yt-logline flex-1 min-w-0")
                     with ui.element("button").classes("yt-link").on("click", lambda: toggle_log()):
                         log_toggle = ui.label("Expandir")
+                    button("Reportar un problema", "yt-link", lambda: webbrowser.open(issue_url(version(), current_os()))) \
+                        .props('title="Abre un reporte en GitHub con la versión y el sistema ya completados"')
                     button("Abrir registro", "yt-btn yt-sm", lambda: log_file_dialog(
                         log_path, reveal_label(), lambda: safely(lambda: reveal_path(log_path), "mostrar el archivo")))
                 log_box = ui.element("div").classes("yt-logbox h-[170px] mx-4 mb-2.5") \
