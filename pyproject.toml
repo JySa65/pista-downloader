@@ -1,8 +1,10 @@
 [project]
 name = "youtube-download"
 version = "0.2.1"
-description = "Add your description here"
+description = "Desktop app to download YouTube videos, playlists and Mixes as MP3/MP4 with yt-dlp, plus a local player."
 readme = "README.md"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
 requires-python = ">=3.14"
 dependencies = [
     "nicegui[native]>=3.18.0",

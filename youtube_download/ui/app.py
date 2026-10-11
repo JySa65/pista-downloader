@@ -113,7 +113,8 @@ def index() -> None:
         with ui.row().classes("items-center gap-2 no-wrap"):
             ui.html(theme.ICON_SVG, sanitize=False).classes("w-5 h-5 flex")
             ui.label("YouTube → MP3").classes("text-[13px] font-semibold yt-text2")
-            ui.label(f"v{version()}").classes("mono text-[11px] yt-subtle")
+            ui.label(f"v{version()}").classes("mono text-[11px] yt-subtle") \
+                .props('title="Licencia GPLv3 (GNU General Public License v3.0 o posterior)"')
         with ui.element("div").classes("yt-seg"):
             tab_dl = button("Descargar", "on", lambda: show_tab("download"))
             tab_pl = button("Reproductor", "", lambda: show_tab("player"))

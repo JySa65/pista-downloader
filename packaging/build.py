@@ -24,6 +24,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+NOTICES = ROOT / ".github" / "THIRD_PARTY_NOTICES.md"
 PKG = ROOT / "packaging"
 BUILD = ROOT / "build"
 DIST = ROOT / "dist"
@@ -104,6 +105,8 @@ def pyinstaller(ffmpeg_dir: Path) -> None:
             "--add-data", f"{Path(nicegui.__file__).parent}{sep}nicegui",
             "--add-data", f"{ROOT / 'pyproject.toml'}{sep}.",
             "--add-data", f"{PKG / 'icon.png'}{sep}.",  # Linux window icon
+            "--add-data", f"{ROOT / 'LICENSE'}{sep}.",
+            "--add-data", f"{NOTICES}{sep}.",
             "--add-binary", f"{ffmpeg_dir / ('ffmpeg' + exe)}{sep}ffmpeg",
             "--add-binary", f"{ffmpeg_dir / ('ffprobe' + exe)}{sep}ffmpeg"]
     for lic in ffmpeg_dir.glob("LICENSE*"):
@@ -137,6 +140,8 @@ def package_macos(v: str) -> Path:
     stage.mkdir(parents=True)
     shutil.copytree(DIST / f"{NAME}.app", stage / f"{NAME}.app", symlinks=True)
     (stage / "Applications").symlink_to("/Applications")
+    shutil.copy(ROOT / "LICENSE", stage / "LICENSE.txt")  # visible in the mounted .dmg too
+    shutil.copy(NOTICES, stage / "THIRD_PARTY_NOTICES.md")
     dmg = DIST / f"{NAME}-{v}-macos-arm64.dmg"
     dmg.unlink(missing_ok=True)
     run("hdiutil", "create", "-volname", NAME, "-srcfolder", stage, "-ov", "-format", "UDZO", dmg)
@@ -161,7 +166,7 @@ def webview2_bootstrapper() -> Path:
 
 def package_windows(v: str) -> Path:
     iscc = shutil.which("iscc") or r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-    run(iscc, f"/DWebView2Setup={webview2_bootstrapper()}", f"/DAppVersion={v}", f"/DIconFile={PKG / 'icon.ico'}", f"/DSourceDir={DIST / NAME}", f"/DOutputDir={DIST}", PKG / "installer.iss")
+    run(iscc, f"/DWebView2Setup={webview2_bootstrapper()}", f"/DAppVersion={v}", f"/DIconFile={PKG / 'icon.ico'}", f"/DSourceDir={DIST / NAME}", f"/DLicenseFile={ROOT / 'LICENSE'}", f"/DNoticesFile={NOTICES}", f"/DOutputDir={DIST}", PKG / "installer.iss")
     return DIST / f"{NAME}-Setup-{v}.exe"
 
 

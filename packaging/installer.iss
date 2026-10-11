@@ -6,6 +6,12 @@
 #ifndef WebView2Setup
   #define WebView2Setup "MicrosoftEdgeWebview2Setup.exe"
 #endif
+#ifndef LicenseFile
+  #define LicenseFile "..\LICENSE"
+#endif
+#ifndef NoticesFile
+  #define NoticesFile "..\.github\THIRD_PARTY_NOTICES.md"
+#endif
 #ifndef AppVersion
   #define AppVersion "0.0.0"
 #endif
@@ -21,6 +27,7 @@ DisableProgramGroupPage=yes
 PrivilegesRequiredOverridesAllowed=dialog
 OutputDir={#OutputDir}
 OutputBaseFilename=YouTubeDownload-Setup-{#AppVersion}
+LicenseFile={#LicenseFile}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -40,6 +47,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#LicenseFile}"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
+Source: "{#NoticesFile}"; DestDir: "{app}"; DestName: "THIRD_PARTY_NOTICES.md"; Flags: ignoreversion
 Source: "{#WebView2Setup}"; DestDir: "{tmp}"; Flags: deleteafterinstall; Check: not IsWebView2Installed
 
 [Icons]
