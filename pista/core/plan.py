@@ -38,7 +38,7 @@ def estimate_bytes(track: Track, fmt: str, quality: str) -> int:
 def archived_ids(archive: str | Path) -> set[str]:
     """Video ids in a yt-dlp download archive ('youtube <id>' per line)."""
     try:
-        lines = Path(archive).read_text("utf-8").splitlines()
+        lines = Path(archive).read_text("utf-8", errors="replace").splitlines()  # tolerate a corrupt file
     except OSError:
         return set()
     return {parts[1] for parts in (line.split() for line in lines) if len(parts) == 2}
