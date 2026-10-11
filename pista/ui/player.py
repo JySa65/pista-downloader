@@ -7,12 +7,18 @@ from urllib.parse import quote
 
 from nicegui import app, ui
 
+from pista.core.applog import redact
 from pista.core.library import cover_bytes, scan, split_artist
 from pista.core.system import default_outdir
 
 from .components import button, hhmmss
 
-_routes: dict[str, str] = {}  # folder -> media url prefix
+_routes: dict[str, str] = {}
+
+
+def shown(path: str | Path) -> str:
+    """Folder as displayed: home directory shortened to ~."""
+    return redact(str(path), str(Path.home()))  # folder -> media url prefix
 
 
 def media_url(folder: Path, file: Path) -> str:
@@ -42,8 +48,8 @@ class Player:
                 with ui.row().classes("w-full items-center justify-between no-wrap px-6 pt-5 pb-3 shrink-0"):
                     with ui.row().classes("items-center gap-3 no-wrap min-w-0"):
                         ui.label("Biblioteca").classes("text-lg font-semibold")
-                        with ui.element("button").classes("yt-btn h-8 mono text-xs flex items-center gap-2"):
-                            self.folder_label = ui.label()
+                        with ui.element("button").classes("yt-btn yt-folderbtn h-8 mono text-xs flex items-center gap-2"):
+                            self.folder_label = ui.label().classes("truncate min-w-0")
                             ui.label("▼").classes("text-[10px] yt-muted")
                             self.menu = ui.menu().props("auto-close").classes("yt-menu")
                         self.count = ui.label().classes("text-[13px] yt-muted whitespace-nowrap")
@@ -142,7 +148,8 @@ class Player:
         self.files = scan(self.root())
         if self.cur is not None and self.cur >= len(self.files):
             self.cur = None
-        self.folder_label.text = str(self.root())
+        self.folder_label.text = shown(self.root())
+        self.folder_label.props(f'title="{self.root()}"')
         self.count.text = f"{len(self.files)} archivos"
         self.build_menu()
         self.render.refresh()
@@ -157,7 +164,7 @@ class Player:
             for path in options:
                 with ui.menu_item(on_click=lambda p=path: self.set_folder(p)):
                     with ui.row().classes("w-full justify-between no-wrap gap-2.5 items-center"):
-                        ui.label(path).classes("mono text-xs truncate" + (" text-primary" if Path(path) == self.root() else ""))
+                        ui.label(shown(path)).classes("mono text-xs truncate" + (" text-primary" if Path(path) == self.root() else ""))
                         ui.label("carpeta de descarga" if path == out else "").classes("text-[11px] yt-subtle")
             ui.separator()
             ui.menu_item("Elegir otra carpeta…", on_click=self.choose).classes("text-primary")
