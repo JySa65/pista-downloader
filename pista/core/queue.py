@@ -264,6 +264,7 @@ class BatchRunner:
             self.current, self.pct = t.id, 0.0
             self.item_cancel.clear()
             m.set_state(t.id, "running", 0.0)
+            pause = 0.0
 
             def on_progress(pct: float, _msg: str) -> None:
                 self.pct = min(pct, 99.0)
@@ -293,12 +294,13 @@ class BatchRunner:
                 self.log(f"✗ {t.title} (intento {attempt}/{MAX_ATTEMPTS}) — {strip_ansi(str(e))}", logging.ERROR)
                 if is_rate_limited(str(e)):
                     self.throttled += 1
-                    wait = backoff(self.throttled)
-                    self.status(f"Demasiadas solicitudes a YouTube: esperando {wait:.0f} s…")
-                    self.log(f"Demasiadas solicitudes a YouTube; esperando {wait:.0f} s antes de seguir", logging.WARNING)
-                    await self._wait(wait)
+                    pause = backoff(self.throttled)
                 else:
                     self.throttled = 0
             finally:
-                self.current = None
+                self.current = None  # before any pause: the UI timer must not repaint this row as running
                 self.on_progress()
+            if pause:
+                self.status(f"Demasiadas solicitudes a YouTube: esperando {pause:.0f} s…")
+                self.log(f"Demasiadas solicitudes a YouTube; esperando {pause:.0f} s antes de seguir", logging.WARNING)
+                await self._wait(pause)

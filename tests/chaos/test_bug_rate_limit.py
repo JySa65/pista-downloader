@@ -46,3 +46,21 @@ def test_stop_interrupts_the_backoff():
     run(r.run())
     assert len(calls) == 3  # stopped within the first pause, no more waiting or downloads
     assert [m.state[t.id][0] for t in m.tracks] == ["error", "stopped", "stopped"]
+
+
+def test_rate_limited_row_is_not_current_during_the_backoff():
+    """The UI timer repaints runner.current as «running»; during the pause it must already be None."""
+    seen = []
+
+    def download(t, *a):
+        raise DownloadError("ERROR: HTTP Error 429: Too Many Requests")
+
+    m = model_with(2)
+    r = runner(m, download, retry_delay=0)
+
+    async def sleep(seconds):
+        seen.append(r.current)
+
+    r.sleep = sleep
+    run(r.run())
+    assert seen and all(c is None for c in seen)
