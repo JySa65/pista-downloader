@@ -7,6 +7,7 @@ import asyncio
 import logging
 import threading
 import time
+import weakref
 from collections import Counter
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -124,6 +125,14 @@ class _Either:
 
 
 RunIO = Callable[..., Awaitable[Any]]
+log = logging.getLogger("pista")
+_ACTIVE: "weakref.WeakSet[BatchRunner]" = weakref.WeakSet()
+
+
+def stop_all() -> None:
+    """Stop every running batch (app shutdown)."""
+    for r in list(_ACTIVE):
+        r.stop()
 
 
 async def _direct(fn, *args):
@@ -137,17 +146,38 @@ class BatchRunner:
                  run_io: RunIO = _direct, sleep: Callable[[float], Awaitable] = asyncio.sleep,
                  retry_delay: float = 10, log: Callable[[str, int], None] = lambda m, lvl=logging.INFO: None,
                  status: Callable[[str], None] = lambda text: None, fmt_text: str = "",
-                 on_progress: Callable[[], None] = lambda: None) -> None:
+                 on_progress: Callable[[], None] = lambda: None, stop_grace: float = 10.0) -> None:
         self.model, self.download = model, download
         self.out, self.quality, self.fmt, self.fmt_text = out, quality, fmt, fmt_text
         self.run_io, self.sleep, self.retry_delay = run_io, sleep, retry_delay
-        self.log, self.status, self.on_progress = log, status, on_progress
+        self._log, self._status, self._on_progress = log, status, on_progress
+        self.stop_grace = stop_grace  # how long to wait for a download that ignores Stop (hung ffmpeg)
+        self._abandoned: set[asyncio.Task] = set()
         self.cancel = threading.Event()
         self.item_cancel = threading.Event()
         self.current: str | None = None
         self.pct = 0.0  # written by the download thread, read by the UI timer
         self.results: dict[str, Result] = {}
         self.throttled = 0  # rate-limited items in a row
+
+    # --- UI callbacks: a broken one (e.g. window closed) must never abort the batch ---
+    def log(self, msg: str, level: int = logging.INFO) -> None:
+        try:
+            self._log(msg, level)
+        except Exception:
+            log.log(level, msg)
+
+    def status(self, text: str) -> None:
+        try:
+            self._status(text)
+        except Exception:
+            log.debug("status callback failed", exc_info=True)
+
+    def on_progress(self) -> None:
+        try:
+            self._on_progress()
+        except Exception:
+            log.debug("progress callback failed", exc_info=True)
 
     # --- controls ---
     def stop(self) -> None:
@@ -159,6 +189,13 @@ class BatchRunner:
 
     # --- the batch ---
     async def run(self) -> Summary:
+        _ACTIVE.add(self)
+        try:
+            return await self._run()
+        finally:
+            _ACTIVE.discard(self)
+
+    async def _run(self) -> Summary:
         started = time.monotonic()
         m = self.model
         for t in m.selected():  # re-run anything selected that was stopped
@@ -194,6 +231,27 @@ class BatchRunner:
             await self.sleep(min(step, left))
             left -= step
 
+    async def _download(self, t: Track, on_progress):
+        """Run one download; if it ignores Stop/«×» for `stop_grace` seconds, abandon it and raise Cancelled.
+
+        A stuck item (e.g. ffmpeg hanging during conversion never calls the progress hook again) would
+        otherwise keep the whole batch, and the UI, busy forever.
+        """
+        task = asyncio.ensure_future(self.run_io(self.download, t, self.out, self.quality, t.playlist,
+                                                 on_progress, _Either(self.cancel, self.item_cancel), self.fmt))
+        asked = None
+        while True:
+            done, _ = await asyncio.wait({task}, timeout=0.25)
+            if done:
+                return task.result()
+            if self.cancel.is_set() or self.item_cancel.is_set():
+                asked = asked or time.monotonic()
+                if time.monotonic() - asked >= self.stop_grace:
+                    self._abandoned.add(task)  # keep a reference; its late result is ignored
+                    task.add_done_callback(lambda f: (self._abandoned.discard(f), f.cancelled() or f.exception()))
+                    self.log(f"⚠ {t.title} — no respondió al detener; se abandonó", logging.WARNING)
+                    raise Cancelled()
+
     async def _run_pending(self) -> None:
         m = self.model
         while not self.cancel.is_set() and (t := m.next_pending()) is not None:
@@ -211,8 +269,7 @@ class BatchRunner:
                 self.pct = min(pct, 99.0)
 
             try:
-                path = await self.run_io(self.download, t, self.out, self.quality, t.playlist, on_progress,
-                                         _Either(self.cancel, self.item_cancel), self.fmt)
+                path = await self._download(t, on_progress)
                 size = Path(path).stat().st_size if path and Path(path).exists() else 0
                 if t.id not in m.state:  # removed right as it finished
                     continue

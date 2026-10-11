@@ -14,7 +14,7 @@ from pista import build_date, version
 from pista.core.applog import setup_logging
 from pista.core.batch import MAX_ATTEMPTS, human_size, human_time, short_error
 from pista.core.downloader import ARCHIVES, download, list_tracks
-from pista.core.queue import BatchRunner
+from pista.core.queue import BatchRunner, stop_all
 from pista.core.plan import archived_ids, plan_download
 from yt_dlp.version import __version__ as yt_dlp_version
 
@@ -463,6 +463,11 @@ def index() -> None:
         set_busy(True)
         try:
             summary = await runner.run()
+        except Exception as e:  # never leave the UI stuck in «descargando»
+            logger.exception("batch failed")
+            ui.notify(f"La descarga se interrumpió por un error: {short_error(str(e))}", type="negative")
+            set_busy(False)
+            return
         finally:
             results = runner.results
             runner = None
@@ -495,6 +500,7 @@ def native_available() -> bool:
 
 
 def run_app() -> None:
+    app.on_shutdown(stop_all)  # closing the window stops downloads (yt-dlp keeps .part files resumable)
     migrate_legacy(user_cache_dir(app=LEGACY_APP_NAME), user_cache_dir())  # <= 0.2.x logs and preview cache
     # YTMP3_BROWSER: pre-rename name of the same switch, still honored.
     browser = "--browser" in sys.argv or "1" in (os.environ.get("PISTA_BROWSER"), os.environ.get("YTMP3_BROWSER"))
