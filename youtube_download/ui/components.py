@@ -112,7 +112,10 @@ class Queue:
         self.tracks: list[Track] = []
         self.checked: dict[str, bool] = {}
         self.state: dict[str, tuple[str, float]] = {}
-        self.rows: dict[str, tuple[ui.element, ui.element, ui.label]] = {}
+        self.rows: dict[str, tuple[ui.element, ui.element, ui.label, ui.element]] = {}
+        self.errors: dict[str, str] = {}
+        self.retry_shown: dict[str, bool] = {}
+        self.on_retry: Callable[[str], None] = lambda track_id: None
         self.on_change = on_change
         self.render()
 
@@ -140,16 +143,29 @@ class Queue:
         self.state[track_id] = (state, pct)
         if track_id not in self.rows:
             return
-        fill, pill_el, pill = self.rows[track_id]
+        fill, pill_el, pill, actions = self.rows[track_id]
         pill_cls, fill_cls, label = STATES[state]
         width = 100 if state in ("done", "skipped", "error") else pct
         fill.classes(replace=f"yt-fill {fill_cls}").style(f"width: {width:.0f}%")
         pill_el.classes(replace=f"yt-pill {pill_cls}")
         pill.text = label or f"{pct:.0f}%"
+        pill_el.props(f'title="{self.errors.get(track_id, "")}"' if state == "error" else 'title=""')
+        if self.retry_shown.get(track_id) != (state == "error"):
+            self._actions(actions, track_id)
+
+    def _actions(self, actions: ui.element, track_id: str) -> None:
+        track = next(t for t in self.tracks if t.id == track_id)
+        error = self.state[track_id][0] == "error"
+        self.retry_shown[track_id] = error
+        actions.clear()
+        with actions:
+            if error:
+                button("Reintentar", "yt-link", lambda: self.on_retry(track_id), stop=True)
+            button("▶ Ver", "yt-link", lambda: open_preview(track), stop=True)
 
     @ui.refreshable_method
     def render(self) -> None:
-        self.rows = {}
+        self.rows, self.retry_shown = {}, {}
         if not self.tracks:
             with ui.element("div").classes("h-full w-full flex items-center justify-center"):
                 ui.label("Pega una o más URLs y pulsa «Cargar».").classes("text-[13px] yt-subtle")
@@ -170,6 +186,7 @@ class Queue:
                         fill = ui.element("div").classes("yt-fill")
                 with ui.element("div").classes("yt-pill") as pill_el:
                     pill = ui.label()
-                button("▶ Ver", "yt-link justify-self-end", lambda t=t: open_preview(t), stop=True)
-            self.rows[t.id] = (fill, pill_el, pill)
+                actions = ui.element("div").classes("yt-actions")
+            self.rows[t.id] = (fill, pill_el, pill, actions)
+            self._actions(actions, t.id)
             self.set_state(t.id, *self.state[t.id])

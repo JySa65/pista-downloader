@@ -105,12 +105,13 @@ def index() -> None:
                 with ui.row().classes("w-full justify-between items-baseline"):
                     ui.label("URLs").classes("yt-label")
                     detected = ui.label("vacío").classes("text-[11px] yt-subtle")
-                with ui.row().classes("w-full gap-1.5 no-wrap"):
-                    draft = ui.input(placeholder="Pega un link y pulsa Enter").props("borderless dense") \
-                        .classes("yt-field flex-1 min-w-0").on("keydown.enter", lambda: add_links(draft.value))
-                    plus = button("+", "yt-btn w-9 px-0 text-lg shrink-0",
-                                  lambda: add_links(draft.value) if draft.value else paste())
-                    plus.props('title="Añadir (vacío: pegar del portapapeles)"')
+                # Multi-line: paste many links at once. Enter adds, Shift+Enter inserts a new line.
+                draft = ui.textarea(placeholder="Pega uno o varios links (uno por línea) y pulsa Enter") \
+                    .props("borderless dense rows=3").classes("yt-area w-full") \
+                    .on("keydown.enter.exact.prevent", lambda: add_links(draft.value))
+                with ui.element("div").classes("grid grid-cols-2 gap-2 w-full"):
+                    button("Añadir", "yt-btn", lambda: add_links(draft.value))
+                    button("Pegar", "yt-btn", lambda: paste()).props('title="Pegar links del portapapeles"')
                 with ui.column().classes("yt-box w-full h-[100px] shrink-0 overflow-auto p-1.5 gap-1 no-wrap"):
                     link_list()
                 with ui.element("div").classes("grid grid-cols-2 gap-2 w-full"):
@@ -140,8 +141,11 @@ def index() -> None:
 
             ui.element("div").classes("flex-1")
             with ui.column().classes("w-full gap-1.5"):
-                ui.label("Registro").classes("yt-label")
-                log_view = ui.log(max_lines=500).classes("yt-log w-full h-16 shrink-0")
+                with ui.row().classes("w-full justify-between items-center"):
+                    ui.label("Registro").classes("yt-label")
+                    with ui.row().classes("gap-1"):
+                        expand_btn = button("Ampliar", "yt-link", lambda: toggle_log())
+                log_view = ui.log(max_lines=1000).classes("yt-log w-full h-32 shrink-0")
 
         with ui.column().classes("min-h-0 gap-0 no-wrap"):
             with ui.row().classes("w-full items-center justify-between px-6 pt-5 pb-3.5 shrink-0"):
@@ -178,6 +182,11 @@ def index() -> None:
         tab_pl.classes(replace="" if is_dl else "on")
         if not is_dl:
             player.reload()
+
+    def toggle_log() -> None:
+        tall = "h-80" in log_view.classes
+        log_view.classes(remove="h-80" if tall else "h-32", add="h-32" if tall else "h-80")
+        expand_btn.default_slot.children[0].text = "Ampliar" if tall else "Reducir"
 
     # ---------- links ----------
     def set_links(new: list[str]) -> None:

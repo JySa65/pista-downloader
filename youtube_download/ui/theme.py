@@ -41,7 +41,7 @@ CSS = """
   --danger-border: #5a2a2c; --danger: #f08a8a; --danger-soft: #2a1718;
   --ok-soft: #16301f; --ok: #7fd39a; --ok-bar: #4fae6e;
 }
-:root { --q-primary: var(--accent); }
+:root { --q-primary: var(--accent); --col-status: 96px; --col-actions: 168px; }
 html, body { background: var(--app); color: var(--text); font-family: 'IBM Plex Sans', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased; overflow: hidden; }
 /* The page never scrolls; each region scrolls on its own (min-height: 0 on flex/grid children). */
@@ -93,8 +93,16 @@ button:disabled { opacity: .45; cursor: default; pointer-events: none; }
 .yt-tag { font-size: 10px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; text-align: center;
   padding: 2px 0; border-radius: 4px; background: var(--line); color: var(--muted); }
 .yt-tag.list { background: var(--accent-soft); color: var(--link); }
-.yt-row { display: grid; grid-template-columns: 20px 64px minmax(0,1fr) 100px 64px; gap: 14px; align-items: center;
-  padding: 10px 8px; border-radius: 8px; cursor: pointer; }
+/* Fixed right-hand columns so status chips and actions line up on every row. */
+.yt-row { display: grid; grid-template-columns: 20px 64px minmax(0,1fr) var(--col-status) var(--col-actions);
+  gap: 14px; align-items: center; padding: 10px 8px; border-radius: 8px; cursor: pointer; }
+.yt-row > .yt-pill { justify-self: end; }
+.yt-actions { display: flex; justify-content: flex-end; align-items: center; gap: 2px; min-width: 0; }
+.yt-area { background: var(--field); border: 1px solid var(--field-border); border-radius: 7px; padding: 6px 10px; }
+.yt-area:focus-within { border-color: var(--accent); }
+.yt-area textarea { color: var(--text); font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.5;
+  resize: none; }
+.yt-area textarea::placeholder { color: var(--subtle); opacity: 1; }
 .yt-row:hover { background: var(--row-hover); }
 .yt-check { width: 16px; height: 16px; border-radius: 4px; border: 1.5px solid var(--box-border); display: flex;
   align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: var(--on-accent); }
