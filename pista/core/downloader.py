@@ -72,6 +72,7 @@ def base_opts(ffmpeg: str | None, deno: str | None, logger: object | None) -> di
     opts = {
         "quiet": True,
         "noprogress": True,
+        "no_color": True,  # no ANSI codes in messages we log or show
         "windowsfilenames": True,  # portable names on every OS (reserved chars, trailing dots/spaces)
         "retries": 10,
         "fragment_retries": 10,

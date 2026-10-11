@@ -13,7 +13,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from .batch import MAX_ATTEMPTS, Result, Summary, backoff, human_size, is_rate_limited, short_error, summarize
+from .batch import MAX_ATTEMPTS, Result, Summary, backoff, friendly_error, human_size, is_rate_limited, strip_ansi, summarize
 from .downloader import Cancelled
 from .models import Track
 
@@ -287,10 +287,10 @@ class BatchRunner:
                 if t.id not in m.state:  # removed while downloading
                     continue
                 m.fails[t.id] = attempt
-                self.results[t.id] = Result(t.title, "error", error=str(e))
-                m.errors[t.id] = short_error(str(e))
+                self.results[t.id] = Result(t.title, "error", error=strip_ansi(str(e)))
+                m.errors[t.id] = friendly_error(str(e))
                 m.set_state(t.id, "error")
-                self.log(f"✗ {t.title} (intento {attempt}/{MAX_ATTEMPTS}) — {e}", logging.ERROR)
+                self.log(f"✗ {t.title} (intento {attempt}/{MAX_ATTEMPTS}) — {strip_ansi(str(e))}", logging.ERROR)
                 if is_rate_limited(str(e)):
                     self.throttled += 1
                     wait = backoff(self.throttled)
