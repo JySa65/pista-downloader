@@ -164,7 +164,7 @@ def download(
     opts = {
         **format_opts(fmt, quality),
         "noplaylist": True,
-        "outtmpl": str(target / "%(title)s.%(ext)s"),
+        "outtmpl": str(target / f"%(title).{MAX_NAME_BYTES}B.%(ext)s"),  # .NB = truncate to N bytes
         "download_archive": str(Path(outdir) / ARCHIVES[fmt]),
         "progress_hooks": [hook],
     }
@@ -204,10 +204,17 @@ def repair_archive(archive: Path) -> Path | None:
     return backup
 
 
+MAX_NAME_BYTES = 150  # file/folder names: well under the 255-byte limit of common filesystems, short on Windows
+
+
+def _trim_bytes(text: str, limit: int) -> str:
+    return text.encode("utf-8")[:limit].decode("utf-8", errors="ignore")
+
+
 def target_dir(outdir: str | Path, subfolder: str) -> Path:
     """Folder for a download: `outdir`, or `outdir/<sanitized playlist title>`; never outside `outdir`."""
     base = Path(outdir)
-    name = sanitize_filename(subfolder or "").strip()
+    name = _trim_bytes(sanitize_filename(subfolder or "").strip(), MAX_NAME_BYTES).strip()
     if name in ("", ".", ".."):
         return base
     target = base / name
