@@ -30,6 +30,7 @@ provider plugin (https://github.com/yt-dlp/yt-dlp/wiki/Extractors, PO-Token-Guid
   - [x] T2b Integrate in dev env: dependency pinned in pyproject/uv.lock, server fetched by a script,
         extractor_args server_home in base_opts only when the server is present; tests.
   - [ ] T2c Packaging: build.py ships yt-dlp-plugins/ + server (src + node_modules) per OS; CI.
+        Plus review follow-ups: no pause after skipped tracks; VERSION-gated server; README note.
   - [x] T2d Auto-update: extend .github/workflows/update-yt-dlp.yml to bump bgutil (plugin + server).
   - Findings: pip wheel is only the Python plugin; token generator (server/src + node_modules with
     native `canvas`) must be shipped per OS (mac arm64/x64, Windows). Script mode reuses the bundled
@@ -53,6 +54,12 @@ provider plugin (https://github.com/yt-dlp/yt-dlp/wiki/Extractors, PO-Token-Guid
   server_home + player_client ['default','mweb'] only when deno + server exist (default clients
   visionos/web never request a PO token). bgutil http ping message downgraded to DEBUG. Weekly
   workflow bumps yt-dlp + bgutil in one PR. GREEN: pytest -q 293 passed; real run retrieved gvs token.
+- Review (RDD) of main..450a508: risk high, consent granted, 4 lenses → approved, acknowledged.
+  Non-blocking findings accepted into T2c: no pause after skipped tracks (R3/R4); vendor dir must
+  not activate PO tokens when fetch fails midway (write VERSION last, require it) (R4); README:
+  re-run fetch after plugin bumps (R2). Noted, not fixed: tag archive has no integrity pin (R1).
+- Separate uncommitted fixes (retry dialog slot, cookie permission message): RDD medium, consent
+  granted, approved, acknowledged. Not committed (user has not asked).
 
 ## Next step
 T2c packaging (macOS local build + CI on Windows/Linux).
