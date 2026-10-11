@@ -1,0 +1,94 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: # test build: installers uploaded as workflow artifacts only
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: windows
+          - os: macos-latest # arm64
+            target: macos
+          - os: ubuntu-22.04 # oldest supported glibc for the AppImage
+            target: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Check tag matches pyproject version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: uv run --no-project python packaging/build.py --check-tag "${{ github.ref_name }}"
+
+      - name: Install dependencies
+        run: uv sync --group build
+
+      - name: Install Qt backend (Linux build only)
+        if: matrix.target == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libnss3
+          uv pip install qtpy PyQt6 PyQt6-WebEngine
+
+      - name: Tests
+        run: uv run --no-sync pytest -q
+
+      - name: Cache LGPL ffmpeg (macOS source build)
+        if: matrix.target == 'macos'
+        uses: actions/cache@v4
+        with:
+          path: build/ffmpeg
+          key: ffmpeg-macos-${{ hashFiles('packaging/build_ffmpeg_macos.sh') }}
+
+      - name: Install Inno Setup (Windows)
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue) -and -not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup -y --no-progress
+          }
+
+      - name: Build installer
+        run: uv run --no-sync python packaging/build.py
+
+      - name: Bundled ffmpeg must not be GPL
+        shell: bash
+        run: |
+          ff=build/ffmpeg/ffmpeg; [ -f "$ff.exe" ] && ff="$ff.exe"
+          "$ff" -hide_banner -version | tee /dev/stderr | grep -q -- "--enable-gpl" && exit 1 || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.target }}
+          path: |
+            dist/*.dmg
+            dist/*.exe
+            dist/*.AppImage
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: installers
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: installers/*
+          generate_release_notes: true
