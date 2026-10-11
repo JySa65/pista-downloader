@@ -131,10 +131,14 @@ def webview2_bootstrapper() -> Path:
     if not dest.exists():
         print("download", WEBVIEW2_BOOTSTRAPPER, flush=True)
         urllib.request.urlretrieve(WEBVIEW2_BOOTSTRAPPER, dest)
-    check = ("$s = Get-AuthenticodeSignature -LiteralPath $env:WV2; "
+    check = ("Import-Module Microsoft.PowerShell.Security; "
+             "$s = Get-AuthenticodeSignature -LiteralPath $env:WV2; "
              "if ($s.Status -ne 'Valid' -or $s.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') "
              "{ Write-Error \"bad signature: $($s.Status) $($s.SignerCertificate.Subject)\"; exit 1 }")
-    subprocess.run(["powershell", "-NoProfile", "-Command", check], check=True, env={**os.environ, "WV2": str(dest)})
+    # Windows PowerShell 5.1 must not inherit PSModulePath from a pwsh 7 parent (e.g. GitHub runners),
+    # or it fails to autoload its own Security module.
+    env = {k: v for k, v in os.environ.items() if k.upper() != "PSMODULEPATH"}
+    subprocess.run(["powershell", "-NoProfile", "-Command", check], check=True, env={**env, "WV2": str(dest)})
     return dest
 
 
