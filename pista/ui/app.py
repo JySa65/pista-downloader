@@ -7,7 +7,6 @@ import re
 import sys
 import threading
 import time
-import webbrowser
 from pathlib import Path
 
 from nicegui import app, core, run, ui
@@ -22,6 +21,7 @@ from yt_dlp.version import __version__ as yt_dlp_version
 from pista.core.system import (
     LEGACY_APP_NAME, migrate_legacy, user_cache_dir, default_outdir, find_deno, find_ffmpeg, has_ffmpeg, log_dir, open_path, read_clipboard, reveal_label, reveal_path,
 )
+from pista.core.links import open_url
 from pista.core.report import REPO, current_os, issue_url
 from pista.core.urls import classify, is_youtube
 
@@ -220,7 +220,7 @@ def index() -> None:
                     last_log = ui.label("Listo.").classes("yt-logline flex-1 min-w-0")
                     with ui.element("button").classes("yt-link").on("click", lambda: toggle_log()):
                         log_toggle = ui.label("Expandir")
-                    button("Reportar un problema", "yt-link", lambda: webbrowser.open(issue_url(version(), current_os()))) \
+                    button("Reportar un problema", "yt-link", lambda: open_url(issue_url(version(), current_os()))) \
                         .props('title="Abre un reporte en GitHub con la versión y el sistema ya completados"')
                     button("Abrir registro", "yt-btn yt-sm", lambda: log_file_dialog(
                         log_path, reveal_label(), lambda: safely(lambda: reveal_path(log_path), "mostrar el archivo")))

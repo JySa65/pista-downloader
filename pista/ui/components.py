@@ -1,5 +1,4 @@
 """Download queue, preview dialog and Mix dialog."""
-import webbrowser
 from collections.abc import Callable
 from pathlib import Path
 
@@ -7,6 +6,7 @@ from nicegui import app, run, ui
 
 from pista.core.batch import Summary, human_size, human_time, status_label
 from pista.core.downloader import preview_clip
+from pista.core.links import is_release_url, is_video_url, open_url
 from pista.core.models import Track
 from pista.core.plan import Plan
 from pista.core.system import user_cache_dir
@@ -121,7 +121,8 @@ def open_preview(track: Track) -> None:
         with ui.row().classes("w-full items-center justify-between px-4 py-3"):
             with ui.element("button").classes("yt-link").on("click", toggle_clip):
                 clip_text = ui.label()
-            button("Abrir en el navegador", "yt-btn h-8 text-xs", lambda: webbrowser.open(track.url))
+            button("Abrir en el navegador", "yt-btn h-8 text-xs",
+                   lambda: open_url(track.url, is_video_url) or ui.notify("Link no válido.", type="warning"))
         show_embed()
     dialog.on("hide", dialog.delete)
     dialog.open()
@@ -411,7 +412,7 @@ LEGAL = (
 
 def link(text: str, url: str, cls: str = "yt-a") -> ui.element:
     """Opens in the default browser (no console window), not inside the app window."""
-    return attrs(button(text, cls, lambda: webbrowser.open(url)), title=url)
+    return attrs(button(text, cls, lambda: open_url(url)), title=url)
 
 
 def about_dialog(version: str, build: str, icon_svg: str, repo: str) -> None:
@@ -455,7 +456,8 @@ def about_dialog(version: str, build: str, icon_svg: str, repo: str) -> None:
                 link("Avisos de terceros", f"https://github.com/{repo}/blob/main/.github/THIRD_PARTY_NOTICES.md")
             with ui.row().classes("px-6 pt-3 gap-2 items-center no-wrap"):
                 status = ui.label().classes("text-xs")
-                status_link = button("Ver la versión nueva", "yt-a text-xs", lambda: webbrowser.open(found["url"]))
+                status_link = button("Ver la versión nueva", "yt-a text-xs",
+                                     lambda: open_url(found["url"], is_release_url))
                 status_link.visible = False
         with ui.row().classes("yt-panel yt-line-t w-full justify-end gap-2 px-6 py-3.5 no-wrap shrink-0"):
             button("Buscar actualizaciones", "yt-btn h-[34px]", check_updates)
