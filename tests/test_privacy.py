@@ -6,15 +6,15 @@ from pista.core.report import REPO, issue_url, os_label
 
 
 def test_redact_home_posix():
-    assert redact("saved /Users/ana/Music/x.mp3 and /Users/ana", "/Users/ana", "darwin") == "saved ~/Music/x.mp3 and ~"
+    assert redact("saved /home/ana/Music/x.mp3 and /home/ana", "/home/ana", "darwin") == "saved ~/Music/x.mp3 and ~"
     assert redact("/home/anabel/x", "/home/ana", "linux") == "/home/anabel/x"  # not a path prefix of another user
-    assert redact("/Users/Ana/x", "/Users/ana", "darwin") == "/Users/Ana/x"  # case-sensitive off Windows
+    assert redact("/home/Ana/x", "/home/ana", "linux") == "/home/Ana/x"  # case-sensitive off Windows
 
 
 def test_redact_home_windows_case_insensitive_both_slashes():
-    home = r"C:\Users\Ana"
-    text = r"C:\users\ana\Music\a.mp3 | c:/Users/ANA/Downloads | C:\Users\Anabel\x"
-    assert redact(text, home, "win32") == r"~\Music\a.mp3 | ~/Downloads | C:\Users\Anabel\x"
+    home = r"D:\Perfiles\Ana"
+    text = r"D:\perfiles\ana\Music\a.mp3 | d:/Perfiles/ANA/Downloads | D:\Perfiles\Anabel\x"
+    assert redact(text, home, "win32") == r"~\Music\a.mp3 | ~/Downloads | D:\Perfiles\Anabel\x"
 
 
 def test_log_file_is_anonymized(tmp_path, monkeypatch):
