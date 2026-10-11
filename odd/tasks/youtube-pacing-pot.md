@@ -18,7 +18,7 @@ provider plugin (https://github.com/yt-dlp/yt-dlp/wiki/Extractors, PO-Token-Guid
 - Generated artifacts in English; UI copy in Spanish (existing convention).
 
 ## Tasks
-- [ ] T1 Pacing 5–10 s between downloads with visible message
+- [x] T1 Pacing 5–10 s between downloads with visible message
   - Route: delegated (writer trigger: queue.py + downloader.py + tests are 2+ non-trivial files)
   - Acceptance: no wait before the first download of a run; random 5–10 s wait before each later
     download; status line and log say why; Stop interrupts; yt-dlp per-format sleep removed
@@ -39,6 +39,8 @@ provider plugin (https://github.com/yt-dlp/yt-dlp/wiki/Extractors, PO-Token-Guid
 
 ## Progress / evidence
 - Exploration done (pacing, logger, status flow, packaging mapped).
+- T1 done in 451683f: RED ImportError PACE_MAX; GREEN `pytest -q` (incl. chaos) 287 passed.
+  No pause after cooldown/retry delay (already a pause). Chaos hang tests use pace=(0, 0).
 
 ## Next step
-T1 writer.
+T2a prototype (running), then T2b–T2d.
