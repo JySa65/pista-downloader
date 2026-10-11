@@ -1,0 +1,234 @@
+"""Download queue and batch state machine, independent of the UI (so it can be tested and fuzzed).
+
+The UI's Queue subclasses QueueModel and repaints rows from the `_changed` / `_state_changed` hooks;
+BatchRunner drives a batch over a QueueModel with an injected download function.
+"""
+import asyncio
+import logging
+import threading
+import time
+from collections import Counter
+from collections.abc import Awaitable, Callable
+from pathlib import Path
+from typing import Any
+
+from .batch import MAX_ATTEMPTS, Result, Summary, human_size, short_error, summarize
+from .downloader import Cancelled
+from .models import Track
+
+STATES = ("queued", "running", "done", "skipped", "error", "stopped")
+FINISHED = ("done", "skipped", "error", "stopped")
+
+
+class QueueModel:
+    def __init__(self) -> None:
+        self.tracks: list[Track] = []
+        self.checked: dict[str, bool] = {}
+        self.state: dict[str, tuple[str, float]] = {}
+        self.errors: dict[str, str] = {}
+        self.fails: dict[str, int] = {}  # failed attempts per track
+        self.sizes: dict[str, int] = {}
+        self.new: set[str] = set()
+
+    # --- hooks for the UI ---
+    def _changed(self) -> None:
+        """Rows were added/removed/re-checked."""
+
+    def _state_changed(self, track_id: str) -> None:
+        """One row's state/progress changed."""
+
+    # --- operations ---
+    def add_tracks(self, tracks: list[Track], new: bool = False) -> int:
+        """Append tracks (deduplicated by video id), checked and queued; `new` marks them «Nuevo»."""
+        added = [t for t in dict((t.id, t) for t in tracks).values() if t.id not in self.state]
+        self.tracks += added
+        for t in added:
+            self.checked[t.id] = True
+            self.state[t.id] = ("queued", 0.0)
+            if new:
+                self.new.add(t.id)
+        if added:
+            self._changed()
+        return len(added)
+
+    def next_pending(self) -> Track | None:
+        """Next checked, queued track; re-read each time so tracks added mid-download are picked up."""
+        return next((t for t in self.tracks if self.checked.get(t.id) and self.state[t.id][0] == "queued"), None)
+
+    def clear_finished(self, keep: str | None) -> int:
+        """Drop finished, failed, stopped and unchecked rows; never the one downloading (`keep`)."""
+        drop = {t.id for t in self.tracks if t.id != keep and (
+            not self.checked.get(t.id) or self.state[t.id][0] in FINISHED)}
+        self._drop(drop)
+        self._changed()
+        return len(drop)
+
+    def remove(self, track_id: str) -> Track | None:
+        """Drop one row (the caller cancels it first if it is downloading)."""
+        track = next((t for t in self.tracks if t.id == track_id), None)
+        if track is None:
+            return None
+        self._drop({track_id})
+        self._changed()
+        return track
+
+    def _drop(self, ids: set[str]) -> None:
+        self.tracks = [t for t in self.tracks if t.id not in ids]
+        for d in (self.checked, self.state, self.errors, self.fails, self.sizes):
+            for k in ids:
+                d.pop(k, None)
+        self.new -= ids
+
+    def select_all(self, value: bool) -> None:
+        self.checked = {t.id: value for t in self.tracks}
+        self._changed()
+
+    def toggle(self, track_id: str) -> None:
+        if track_id in self.checked:
+            self.checked[track_id] = not self.checked[track_id]
+            self._changed()
+
+    def selected(self) -> list[Track]:
+        return [t for t in self.tracks if self.checked.get(t.id)]
+
+    def set_state(self, track_id: str, state: str, pct: float = 0.0) -> None:
+        if state not in STATES:
+            raise ValueError(f"unknown state: {state}")
+        if track_id not in self.state:
+            return  # removed meanwhile
+        self.state[track_id] = (state, pct)
+        self._state_changed(track_id)
+
+    def title(self, track_id: str) -> str:
+        return next((t.title for t in self.tracks if t.id == track_id), track_id)
+
+    def counts(self) -> Counter:
+        return Counter(s for s, _ in self.state.values())
+
+
+def progress_total(model: QueueModel) -> float:
+    sel = [t.id for t in model.selected()]
+    if not sel:
+        return 0.0
+    return sum(100 if model.state[i][0] in ("done", "skipped", "error") else model.state[i][1] for i in sel) / len(sel)
+
+
+class _Either:
+    """What download() polls: the batch's Detener or the current row's «×»."""
+
+    def __init__(self, *events: threading.Event) -> None:
+        self.events = events
+
+    def is_set(self) -> bool:
+        return any(e.is_set() for e in self.events)
+
+
+RunIO = Callable[..., Awaitable[Any]]
+
+
+async def _direct(fn, *args):
+    return fn(*args)
+
+
+class BatchRunner:
+    """One download batch over a QueueModel. Not reentrant: create one per batch."""
+
+    def __init__(self, model: QueueModel, download: Callable, *, out: str, quality: str, fmt: str,
+                 run_io: RunIO = _direct, sleep: Callable[[float], Awaitable] = asyncio.sleep,
+                 retry_delay: float = 10, log: Callable[[str, int], None] = lambda m, lvl=logging.INFO: None,
+                 status: Callable[[str], None] = lambda text: None, fmt_text: str = "",
+                 on_progress: Callable[[], None] = lambda: None) -> None:
+        self.model, self.download = model, download
+        self.out, self.quality, self.fmt, self.fmt_text = out, quality, fmt, fmt_text
+        self.run_io, self.sleep, self.retry_delay = run_io, sleep, retry_delay
+        self.log, self.status, self.on_progress = log, status, on_progress
+        self.cancel = threading.Event()
+        self.item_cancel = threading.Event()
+        self.current: str | None = None
+        self.pct = 0.0  # written by the download thread, read by the UI timer
+        self.results: dict[str, Result] = {}
+
+    # --- controls ---
+    def stop(self) -> None:
+        self.cancel.set()
+
+    def cancel_item(self, track_id: str) -> None:
+        if self.current == track_id:
+            self.item_cancel.set()
+
+    # --- the batch ---
+    async def run(self) -> Summary:
+        started = time.monotonic()
+        m = self.model
+        for t in m.selected():  # re-run anything selected that was stopped
+            if m.state[t.id][0] == "stopped":
+                m.set_state(t.id, "queued")
+        self.log(f"▶ Descargando en {self.out} · {self.fmt_text}", logging.INFO)
+        await self._run_pending()
+        # One automatic second pass for items that failed only once.
+        again = [tid for tid, r in self.results.items() if r.state == "error" and m.fails.get(tid) == 1]
+        if again and not self.cancel.is_set():
+            self.status(f"Reintentando {len(again)} fallida(s) en {self.retry_delay:g} s…")
+            for tid in again:
+                m.set_state(tid, "queued")  # shows «Reintentando (2/3)»
+            self.log(f"↻ Reintentando {len(again)} fallida(s) en {self.retry_delay:g} s", logging.WARNING)
+            for _ in range(int(self.retry_delay * 10)):
+                if self.cancel.is_set():
+                    break
+                await self.sleep(0.1)
+            await self._run_pending()
+
+        stopped = self.cancel.is_set()
+        if stopped:
+            for t in m.selected():  # anything left in the queue counts as stopped
+                if m.state[t.id][0] == "queued":
+                    m.set_state(t.id, "stopped")
+                    self.results.setdefault(t.id, Result(t.title, "stopped"))
+            self.log("Detenido por el usuario.", logging.INFO)
+        self.status("Detenido." if stopped else "Terminado.")
+        return summarize(list(self.results.values()), time.monotonic() - started,
+                         ended_at=time.strftime("%H:%M"), processed=len(self.results))
+
+    async def _run_pending(self) -> None:
+        m = self.model
+        while not self.cancel.is_set() and (t := m.next_pending()) is not None:
+            attempt = m.fails.get(t.id, 0) + 1
+            done = sum(r.state != "error" for r in self.results.values())
+            pending = sum(1 for x in m.selected() if m.state[x.id][0] == "queued")
+            self.status(f"Descargando {done + 1} de {done + pending} · {self.fmt_text}")
+            self.log(f"… {t.title} — descargando" + (f" (intento {attempt}/{MAX_ATTEMPTS})" if attempt > 1 else ""),
+                     logging.INFO)
+            self.current, self.pct = t.id, 0.0
+            self.item_cancel.clear()
+            m.set_state(t.id, "running", 0.0)
+
+            def on_progress(pct: float, _msg: str) -> None:
+                self.pct = min(pct, 99.0)
+
+            try:
+                path = await self.run_io(self.download, t, self.out, self.quality, t.playlist, on_progress,
+                                         _Either(self.cancel, self.item_cancel), self.fmt)
+                size = Path(path).stat().st_size if path and Path(path).exists() else 0
+                if t.id not in m.state:  # removed right as it finished
+                    continue
+                self.results[t.id] = Result(t.title, "done" if path else "skipped", path, size)
+                if size:
+                    m.sizes[t.id] = size
+                m.set_state(t.id, "done" if path else "skipped")
+                self.log(f"✓ {path} ({human_size(size)})" if path else f"= {t.title} — ya estaba, se omite",
+                         logging.INFO)
+            except Cancelled:
+                if t.id in m.state:  # stopped batch; a removed row is just dropped
+                    self.results[t.id] = Result(t.title, "stopped")
+                    m.set_state(t.id, "stopped", self.pct)
+            except Exception as e:
+                if t.id not in m.state:  # removed while downloading
+                    continue
+                m.fails[t.id] = attempt
+                self.results[t.id] = Result(t.title, "error", error=str(e))
+                m.errors[t.id] = short_error(str(e))
+                m.set_state(t.id, "error")
+                self.log(f"✗ {t.title} (intento {attempt}/{MAX_ATTEMPTS}) — {e}", logging.ERROR)
+            finally:
+                self.current = None
+                self.on_progress()

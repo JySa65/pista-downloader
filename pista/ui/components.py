@@ -9,6 +9,7 @@ from pista.core.downloader import preview_clip
 from pista.core.links import is_release_url, is_video_url, open_url
 from pista.core.models import Track
 from pista.core.plan import Plan
+from pista.core.queue import QueueModel
 from pista.core.system import user_cache_dir
 from pista.core.updates import fetch_latest, update_status
 
@@ -134,17 +135,14 @@ PILL = {  # state -> (pill class, bar class)
 }
 
 
-class Queue:
-    """Checkable track rows. Every row has the same fixed height and columns, whatever its state."""
+class Queue(QueueModel):
+    """Checkable track rows. Every row has the same fixed height and columns, whatever its state.
+
+    State lives in QueueModel (pista/core/queue.py); this class only paints it.
+    """
 
     def __init__(self, on_change: Callable[[], None], fmt_label: Callable[[], str]) -> None:
-        self.tracks: list[Track] = []
-        self.checked: dict[str, bool] = {}
-        self.state: dict[str, tuple[str, float]] = {}
-        self.errors: dict[str, str] = {}
-        self.fails: dict[str, int] = {}  # failed attempts per track
-        self.sizes: dict[str, int] = {}
-        self.new: set[str] = set()
+        super().__init__()
         self.rows: dict[str, dict] = {}
         self.on_change = on_change
         self.fmt_label = fmt_label
@@ -152,72 +150,22 @@ class Queue:
         self.on_remove: Callable[[str], None] = lambda track_id: None
         self.render()
 
-    def add_tracks(self, tracks: list[Track], new: bool = False) -> int:
-        """Append tracks (deduplicated by video id), checked and queued; `new` marks them «Nuevo»."""
-        added = [t for t in dict((t.id, t) for t in tracks).values() if t.id not in self.state]
-        self.tracks += added
-        for t in added:
-            self.checked[t.id] = True
-            self.state[t.id] = ("queued", 0.0)
-            if new:
-                self.new.add(t.id)
-        if added:
-            self.render.refresh()
-            self.on_change()
-        return len(added)
-
-    def next_pending(self) -> Track | None:
-        """Next checked, queued track; re-read each time so tracks added mid-download are picked up."""
-        return next((t for t in self.tracks if self.checked.get(t.id) and self.state[t.id][0] == "queued"), None)
-
-    def clear_finished(self, keep: str | None) -> int:
-        """Drop finished, failed, stopped and unchecked rows; never the one downloading (`keep`)."""
-        drop = {t.id for t in self.tracks if t.id != keep and (
-            not self.checked.get(t.id) or self.state[t.id][0] in ("done", "skipped", "error", "stopped"))}
-        self.tracks = [t for t in self.tracks if t.id not in drop]
-        for d in (self.checked, self.state, self.errors, self.fails, self.sizes):
-            for k in drop:
-                d.pop(k, None)
-        self.new -= drop
-        self.render.refresh()
-        self.on_change()
-        return len(drop)
-
-    def remove(self, track_id: str) -> Track | None:
-        """Drop one row (the caller cancels it first if it is downloading)."""
-        track = next((t for t in self.tracks if t.id == track_id), None)
-        if track is None:
-            return None
-        self.tracks.remove(track)
-        for d in (self.checked, self.state, self.errors, self.fails, self.sizes):
-            d.pop(track_id, None)
-        self.new.discard(track_id)
-        self.render.refresh()
-        self.on_change()
-        return track
-
-    def select_all(self, value: bool) -> None:
-        self.checked = {t.id: value for t in self.tracks}
+    def _changed(self) -> None:
         self.render.refresh()
         self.on_change()
 
-    def toggle(self, track_id: str) -> None:
-        self.checked[track_id] = not self.checked[track_id]
-        self.render.refresh()
-        self.on_change()
-
-    def selected(self) -> list[Track]:
-        return [t for t in self.tracks if self.checked.get(t.id)]
+    def _state_changed(self, track_id: str) -> None:
+        self._paint(track_id)
 
     def meta(self, t: Track) -> str:
         size = self.sizes.get(t.id)
         return f"{t.channel} · {hhmmss(t.duration)} · {self.fmt_label()}" + (f" · {human_size(size)}" if size else "")
 
-    def set_state(self, track_id: str, state: str, pct: float = 0.0) -> None:
-        self.state[track_id] = (state, pct)
+    def _paint(self, track_id: str) -> None:
         row = self.rows.get(track_id)
-        if row is None:
+        if row is None or track_id not in self.state:
             return
+        state, pct = self.state[track_id]
         pill_cls, bar_cls = PILL[state]
         if state == "queued" and self.fails.get(track_id):
             pill_cls = "amb"
@@ -279,7 +227,7 @@ class Queue:
             row = dict(el=el, track=t, fill=fill, bar=bar, reason=reason, meta=meta, pill=pill,
                        pill_text=pill_text, action=action, error_shown=None)
             self.rows[t.id] = row
-            self.set_state(t.id, *self.state[t.id])
+            self._paint(t.id)
 
 
 def summary_dialog(summary: Summary, folder: str, processed: int, go_player: Callable[[], None],

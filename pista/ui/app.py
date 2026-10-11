@@ -5,7 +5,6 @@ import logging
 import os
 import re
 import sys
-import threading
 import time
 from pathlib import Path
 
@@ -13,8 +12,9 @@ from nicegui import app, core, run, ui
 
 from pista import build_date, version
 from pista.core.applog import setup_logging
-from pista.core.batch import MAX_ATTEMPTS, Result, human_size, human_time, short_error, summarize
-from pista.core.downloader import ARCHIVES, Cancelled, download, list_tracks
+from pista.core.batch import MAX_ATTEMPTS, human_size, human_time, short_error
+from pista.core.downloader import ARCHIVES, download, list_tracks
+from pista.core.queue import BatchRunner
 from pista.core.plan import archived_ids, plan_download
 from yt_dlp.version import __version__ as yt_dlp_version
 
@@ -73,10 +73,7 @@ def index() -> None:
     busy = False
     log_open = False
     last_summary: dict = {}  # kwargs for summary_dialog, reopened by «Ver resumen»
-    # Written from worker threads, read by the timer on the event loop.
-    progress: dict = {"track": None, "pct": 0.0}
-    cancel = threading.Event()
-    item_cancel = threading.Event()  # cancels only the current item (row «×»), not the batch
+    runner: BatchRunner | None = None  # the running batch, if any
     log_lines: list[str] = []
 
     def log(msg: str, level: int = logging.INFO) -> None:
@@ -337,9 +334,9 @@ def index() -> None:
 
     # ---------- progress polling ----------
     def poll() -> None:
-        if not busy or progress["track"] is None:
+        if runner is None or runner.current is None:
             return
-        queue.set_state(progress["track"], "running", progress["pct"])
+        queue.set_state(runner.current, "running", runner.pct)  # pct is written by the download thread
         set_total()
 
     def set_total() -> None:
@@ -393,19 +390,20 @@ def index() -> None:
             set_total()
 
     def stop() -> None:
-        cancel.set()
+        if runner is not None:
+            runner.stop()
         close_dialogs()  # preview, log file and Mix question
 
     def remove_item(track_id: str) -> None:
-        if progress["track"] == track_id:
-            item_cancel.set()  # the worker drops it when the download aborts
+        if runner is not None:
+            runner.cancel_item(track_id)  # the worker drops it when the download aborts
         track = queue.remove(track_id)
         if track:
             log(f"− {track.title} — quitada de la cola")
         set_total()
 
     def clear_queue() -> None:
-        removed = queue.clear_finished(keep=progress["track"])
+        removed = queue.clear_finished(keep=runner.current if runner else None)
         log(f"Cola limpiada: {removed} quitadas.")
         set_total()
 
@@ -457,87 +455,18 @@ def index() -> None:
             return
         if not has_ffmpeg() or not (outdir.value or "").strip():
             return
+        nonlocal runner
         out = str(Path(outdir.value.strip()).expanduser())
-        cancel.clear()
-        for t in queue.selected():  # re-run anything selected that was stopped
-            if queue.state[t.id][0] == "stopped":
-                queue.set_state(t.id, "queued")
+        runner = BatchRunner(queue, download, out=out, quality=quality, fmt=fmt, run_io=run.io_bound,
+                             retry_delay=RETRY_DELAY, log=log, status=lambda text: setattr(status, "text", text),
+                             fmt_text=format_text(), on_progress=set_total)
         set_busy(True)
-        started = time.monotonic()
-        results: dict[str, Result] = {}
-        log(f"▶ Descargando en {out} · {format_text()}")
-
-        class Either:  # what download() polls: the batch's Detener or this row's «×»
-            @staticmethod
-            def is_set() -> bool:
-                return cancel.is_set() or item_cancel.is_set()
-
-        either = Either()
-
-        async def run_pending() -> None:
-            while not cancel.is_set() and (t := queue.next_pending()) is not None:
-                attempt = queue.fails.get(t.id, 0) + 1
-                done = sum(r.state != "error" for r in results.values())
-                pending = sum(1 for x in queue.selected() if queue.state[x.id][0] == "queued")
-                status.text = f"Descargando {done + 1} de {done + pending} · {format_text()}"
-                log(f"… {t.title} — descargando" + (f" (intento {attempt}/{MAX_ATTEMPTS})" if attempt > 1 else ""))
-                progress.update(track=t.id, pct=0.0)
-                item_cancel.clear()
-
-                def on_progress(pct: float, _msg: str) -> None:
-                    progress["pct"] = min(pct, 99.0)
-
-                try:
-                    path = await run.io_bound(download, t, out, quality, t.playlist, on_progress, either, fmt)
-                    size = Path(path).stat().st_size if path and Path(path).exists() else 0
-                    if t.id not in queue.state:  # removed right as it finished
-                        continue
-                    results[t.id] = Result(t.title, "done" if path else "skipped", path, size)
-                    if size:
-                        queue.sizes[t.id] = size
-                    queue.set_state(t.id, "done" if path else "skipped")
-                    log(f"✓ {path} ({human_size(size)})" if path else f"= {t.title} — ya estaba, se omite")
-                except Cancelled:
-                    if t.id in queue.state:  # stopped batch; a removed row is just dropped
-                        results[t.id] = Result(t.title, "stopped")
-                        queue.set_state(t.id, "stopped", progress["pct"])
-                except Exception as e:
-                    if t.id not in queue.state:  # removed while downloading
-                        continue
-                    queue.fails[t.id] = attempt
-                    results[t.id] = Result(t.title, "error", error=str(e))
-                    queue.errors[t.id] = short_error(str(e))
-                    queue.set_state(t.id, "error")
-                    log(f"✗ {t.title} (intento {attempt}/{MAX_ATTEMPTS}) — {e}", logging.ERROR)
-                finally:
-                    progress["track"] = None
-                set_total()
-
-        await run_pending()
-        # One automatic second pass for items that failed only once.
-        again = [tid for tid, r in results.items() if r.state == "error" and queue.fails.get(tid) == 1]
-        if again and not cancel.is_set():
-            status.text = f"Reintentando {len(again)} fallida(s) en {RETRY_DELAY} s…"
-            for tid in again:
-                queue.set_state(tid, "queued")  # shows «Reintentando (2/3)»
-            log(f"↻ Reintentando {len(again)} fallida(s) en {RETRY_DELAY} s", logging.WARNING)
-            for _ in range(RETRY_DELAY * 10):
-                if cancel.is_set():
-                    break
-                await asyncio.sleep(0.1)
-            await run_pending()
-
-        stopped = cancel.is_set()
-        if stopped:
-            for t in queue.selected():  # anything left in the queue counts as stopped
-                if queue.state[t.id][0] == "queued":
-                    queue.set_state(t.id, "stopped")
-                    results.setdefault(t.id, Result(t.title, "stopped"))
-            log("Detenido por el usuario.")
-        status.text = "Detenido." if stopped else "Terminado."
+        try:
+            summary = await runner.run()
+        finally:
+            results = runner.results
+            runner = None
         set_total()
-        summary = summarize(list(results.values()), time.monotonic() - started,
-                            ended_at=time.strftime("%H:%M"), processed=len(results))
         log(f"Resumen: {summary.done} descargadas, {summary.skipped} ya estaban, {summary.failed} fallidas, "
             f"{summary.stopped} detenidas · {human_size(summary.total_bytes)} · {human_time(summary.elapsed)}")
         failed_ids = [tid for tid, r in results.items() if r.state == "error"]
