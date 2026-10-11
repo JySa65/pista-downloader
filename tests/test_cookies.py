@@ -1,6 +1,8 @@
 """Optional «use my browser's YouTube session» (cookiesfrombrowser). Off by default; only the choice is stored."""
 import json
 import logging
+import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -102,6 +104,8 @@ def test_bot_check_suggests_the_option():
     assert msg.endswith(BOT_HINT)
 
 
+@pytest.mark.skipif(sys.platform == "win32" or os.geteuid() == 0,
+                    reason="chmod can't make a folder unreadable on Windows or for root")
 def test_blocked_browser_folder_asks_for_disk_access(tmp_path):
     profile = tmp_path / "Brave-Browser"
     profile.mkdir()
