@@ -5,15 +5,18 @@ from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import quote
 
-from nicegui import app, ui
+from nicegui import app, run, ui
 
 from pista.core.applog import redact
-from pista.core.library import cover_bytes, scan, split_artist
+from pista.core.library import Entry, MetaCache, counts, cover_bytes, library_view, load_library, next_entry, visible
 from pista.core.system import default_outdir
 
 from .components import attrs, button, hhmmss
 
 _routes: dict[str, str] = {}
+SESSION = {"mode": "all", "sort": "title", "desc": False}  # remembered while the app runs
+SORT_HEADERS = (("Título", "title"), ("Artista", "artist"), ("Dur.", "duration"))
+MODES = (("all", "Todos"), ("mp3", "MP3"), ("mp4", "MP4"))
 
 
 def shown(path: str | Path) -> str:
@@ -35,8 +38,9 @@ class Player:
         self.pick_folder = pick_folder
         self.folder: Path | None = None  # None = follow the download folder
         self.extra: list[str] = []
-        self.files: list[Path] = []
-        self.cur: int | None = None
+        self.entries: list[Entry] = []
+        self.cache = MetaCache()  # (path, mtime, size) -> tags/duration
+        self.cur: Path | None = None  # the playing file (may be hidden by the filter)
         self.playing = False
         self.duration = 0.0
         self.shuffle = self.repeat = False
@@ -53,13 +57,14 @@ class Player:
                             ui.label("▼").classes("text-[10px] yt-muted")
                             self.menu = ui.menu().props("auto-close").classes("yt-menu")
                         self.count = ui.label().classes("text-[13px] yt-muted whitespace-nowrap")
-                    self.query = ui.input(placeholder="Buscar", on_change=lambda: self.render.refresh()) \
-                        .props("borderless dense").classes("yt-field w-[200px] h-8")
-                with ui.element("div").classes("yt-libhead shrink-0"):
-                    for h in ("#", "Tipo", "Título", "Artista"):
-                        ui.label(h)
-                    ui.label("Dur.").classes("text-right")
-                with ui.column().classes("flex-1 min-h-0 overflow-auto px-4 py-1.5 gap-0 w-full no-wrap"):
+                    with ui.row().classes("items-center gap-2 no-wrap shrink-0"):
+                        self.modes()
+                        self.query = ui.input(placeholder="Buscar", on_change=lambda: self.refresh()) \
+                            .props("borderless dense").classes("yt-field w-[180px] h-8")
+                # The header lives inside the scroller (sticky) so it gets the same width as the rows,
+                # scrollbar included, and the columns line up.
+                with ui.column().classes("flex-1 min-h-0 overflow-auto px-4 pb-1.5 gap-0 w-full no-wrap"):
+                    self.header()
                     self.render()
             with ui.column().classes("yt-panel yt-line-l px-7 py-6 gap-[18px] min-h-0 overflow-auto no-wrap"):
                 with ui.row().classes("w-full items-center justify-between"):
@@ -137,6 +142,43 @@ class Player:
             attrs(ui.element("img"), src=f"data:{mime};base64,{base64.b64encode(data).decode()}", alt="portada") \
                 .classes("w-full h-full object-cover")
 
+    # --- library view: format filter, sortable headers, grouped rows ---
+    def refresh(self) -> None:
+        self.modes.refresh()
+        self.header.refresh()
+        self.render.refresh()
+
+    def view(self):
+        q = self.query.value or "" if hasattr(self, "query") else ""
+        return library_view(self.entries, q, SESSION["mode"], SESSION["sort"], SESSION["desc"])
+
+    def set_mode(self, mode: str) -> None:
+        SESSION["mode"] = mode
+        self.refresh()
+
+    def sort_by(self, key: str) -> None:
+        SESSION["desc"] = not SESSION["desc"] if SESSION["sort"] == key else False
+        SESSION["sort"] = key
+        self.refresh()
+
+    @ui.refreshable_method
+    def modes(self) -> None:
+        n = counts(self.entries, self.query.value or "" if hasattr(self, "query") else "")
+        with ui.element("div").classes("yt-seg yt-modes"):
+            for key, label in MODES:
+                button(f"{label} ({n[key]})", "on" if SESSION["mode"] == key else "", lambda k=key: self.set_mode(k))
+
+    @ui.refreshable_method
+    def header(self) -> None:
+        with ui.element("div").classes("yt-libhead shrink-0"):
+            ui.label("#")
+            ui.label("Tipo")
+            for label, key in SORT_HEADERS:
+                arrow = (" ▼" if SESSION["desc"] else " ▲") if SESSION["sort"] == key else ""
+                b = button(label + arrow, "yt-sorth" + (" text-right justify-self-end" if key == "duration" else ""),
+                           lambda k=key: self.sort_by(k))
+                attrs(b, title="Ordenar")
+
     # --- library ---
     def root(self) -> Path:
         return self.folder or self.outdir()
@@ -145,14 +187,17 @@ class Player:
         return Path(self.get_outdir()).expanduser() if self.get_outdir() else default_outdir()
 
     def reload(self) -> None:
-        self.files = scan(self.root())
-        if self.cur is not None and self.cur >= len(self.files):
-            self.cur = None
-        self.folder_label.text = shown(self.root())
-        attrs(self.folder_label, title=str(self.root()))
-        self.count.text = f"{len(self.files)} archivos"
+        ui.timer(0, self.reload_async, once=True)
+
+    async def reload_async(self) -> None:
+        """Scan and read tags off the event loop (cached per file, ~30 ms for 200 files)."""
+        root = self.root()
+        self.folder_label.text = shown(root)
+        attrs(self.folder_label, title=str(root))
         self.build_menu()
-        self.render.refresh()
+        self.entries = await run.io_bound(load_library, root, self.cache) or []
+        self.count.text = f"{len(self.entries)} archivos"
+        self.refresh()
 
     def build_menu(self) -> None:
         out = str(self.outdir())
@@ -182,31 +227,31 @@ class Player:
 
     @ui.refreshable_method
     def render(self) -> None:
-        q = (self.query.value or "").lower() if hasattr(self, "query") else ""
-        if not self.files:
-            ui.label("No hay MP3 ni MP4 en esta carpeta.").classes("text-[13px] yt-subtle self-center py-10")
-        for i, f in enumerate(self.files):
-            artist, title = split_artist(f.stem)
-            if q and q not in f.stem.lower():
-                continue
-            cur = i == self.cur
-            with ui.element("div").classes("yt-librow w-full" + (" cur" if cur else "")).on("click", lambda i=i: self.play(i)):
-                ui.label("▶" if cur and self.playing else f"{i + 1:02d}").classes("n mono text-xs yt-subtle")
-                is_video = f.suffix.lower() == ".mp4"
-                ui.label("MP4" if is_video else "MP3").classes("yt-fmt" + (" mp4" if is_video else ""))
-                ui.label(title).classes("t text-[13px] font-medium truncate")
-                ui.label(artist or f.parent.name).classes("text-[13px] yt-muted truncate")
-                ui.label(hhmmss(self.duration) if cur and self.duration else "—").classes("mono text-xs yt-muted text-right")
+        sections = self.view()
+        if not sections:
+            ui.label("No hay MP3 ni MP4 en esta carpeta." if not self.entries else "Nada coincide con la búsqueda.") \
+                .classes("text-[13px] yt-subtle self-center py-10")
+        for head, rows in sections:
+            if head:
+                ui.label(head).classes("yt-libsec")
+            for n, e in enumerate(rows, start=1):  # numbering restarts per section
+                cur = e.path == self.cur
+                with ui.element("div").classes("yt-librow w-full" + (" cur" if cur else "")) \
+                        .on("click", lambda e=e: self.play(e)):
+                    ui.label("▶" if cur and self.playing else f"{n:02d}").classes("n mono text-xs yt-subtle")
+                    ui.label(e.fmt).classes("yt-fmt" + (" mp4" if e.fmt == "MP4" else ""))
+                    attrs(ui.label(e.title).classes("t text-[13px] font-medium truncate"), title=e.title)
+                    ui.label(e.artist).classes("text-[13px] yt-muted truncate")
+                    ui.label(hhmmss(e.duration) if e.duration else "—").classes("mono text-xs yt-muted text-right")
 
     # --- playback ---
-    def play(self, i: int) -> None:
-        if not self.files:
+    def play(self, e: Entry | None) -> None:
+        if e is None:
             return
-        self.cur = i % len(self.files)
-        f = self.files[self.cur]
-        artist, title = split_artist(f.stem)
-        self.title.text, self.artist.text = title, artist or f.parent.name
-        self.duration = 0.0
+        self.cur, f = e.path, e.path
+        self.title.text, self.artist.text = e.title, "" if e.artist == "—" else e.artist
+        self.duration = e.duration or 0.0
+        self.dur_label.text = hhmmss(e.duration) if e.duration else "0:00"
         src = media_url(self.root(), f)
         is_video = f.suffix.lower() == ".mp4"
         self.fmt_tag.text = "MP4" if is_video else "MP3"
@@ -230,24 +275,20 @@ class Player:
         self.set_volume()
         self.render.refresh()
 
-    def play_path(self, path: Path) -> None:
+    async def play_path(self, path: Path) -> None:
         """Show the library containing `path` and play it (used after a download batch)."""
-        self.reload()
         try:
             path.relative_to(self.root())
         except ValueError:
-            self.set_folder(str(path.parent))
-        resolved = [f.resolve() for f in self.files]
-        if path.resolve() in resolved:
-            self.play(resolved.index(path.resolve()))
+            out = str(self.outdir())
+            self.folder = None if str(path.parent) == out else path.parent
+        await self.reload_async()
+        target = path.resolve()
+        self.play(next((e for e in self.entries if e.path.resolve() == target), None))
 
     def step(self, d: int) -> None:
-        if not self.files:
-            return
-        if self.shuffle:
-            self.play(random.randrange(len(self.files)))
-        else:
-            self.play((self.cur if self.cur is not None else -1) + d)
+        """Prev/next/shuffle within the visible (filtered) list."""
+        self.play(next_entry(visible(self.view()), self.cur, d, self.shuffle, random))
 
     def prev(self) -> None:
         if self.seek.value > 0 and self.duration and self.seek.value / 1000 * self.duration > 3:

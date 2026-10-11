@@ -547,7 +547,7 @@ def index() -> None:
     def go_to_player(first_new: str | None) -> None:
         show_tab("player")
         if first_new:
-            player.play_path(Path(first_new))
+            ui.timer(0, lambda: player.play_path(Path(first_new)), once=True)
 
 
 def native_available() -> bool:

@@ -147,6 +147,13 @@ button:disabled { opacity: .45; cursor: default; pointer-events: none; }
 .yt-switch .q-toggle__label { padding-left: 8px; }
 .yt-cooldown { background: var(--amber-soft); color: var(--amber); border-top: 1px solid var(--line); }
 .yt-new.yt-had { background: var(--ok-soft); color: var(--ok); }
+.yt-modes > button { padding: 4px 10px; font-size: 12px; white-space: nowrap; }
+.yt-sorth { border: 0; background: transparent; padding: 0; font: inherit; color: inherit; cursor: pointer;
+  text-transform: inherit; letter-spacing: inherit; text-align: left; }
+.yt-sorth:hover { color: var(--text); }
+/* Section header inside the scrolling list; stays visible while its rows scroll. */
+.yt-libsec { position: sticky; top: 30px; /* below the sticky column header */ z-index: 1; padding: 8px 16px 4px; font-size: 11px; font-weight: 600;
+  letter-spacing: .04em; text-transform: uppercase; color: var(--muted); background: var(--app); width: 100%; }
 .yt-new { flex-shrink: 0; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em;
   padding: 1px 5px; border-radius: 4px; background: var(--accent-soft); color: var(--link); }
 .yt-retry { height: 28px; border: 1px solid var(--danger-border); background: transparent; color: var(--danger);
@@ -228,7 +235,8 @@ button:disabled { opacity: .45; cursor: default; pointer-events: none; }
   box-shadow: 0 20px 50px rgba(0,0,0,.35); max-width: none; }
 .yt-libhead, .yt-librow { display: grid; grid-template-columns: 28px 40px minmax(0,1fr) 140px 56px; gap: 14px; align-items: center; }
 /* The header is a flex-column child: give it the rows' width (minus its side margins) so columns line up. */
-.yt-libhead { width: calc(100% - 32px); box-sizing: border-box; padding: 6px 16px; margin: 0 16px; font-size: 11px; font-weight: 600; letter-spacing: .04em;
+.yt-libhead { position: sticky; top: 0; z-index: 2; background: var(--app);
+  width: 100%; box-sizing: border-box; padding: 6px 16px; margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .04em;
   text-transform: uppercase; color: var(--subtle); border-bottom: 1px solid var(--line); }
 .yt-librow { padding: 9px 16px; border-radius: 7px; cursor: pointer; }
 .yt-librow:hover { background: var(--btn); }
