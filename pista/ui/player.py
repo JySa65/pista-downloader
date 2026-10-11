@@ -11,7 +11,7 @@ from pista.core.applog import redact
 from pista.core.library import cover_bytes, scan, split_artist
 from pista.core.system import default_outdir
 
-from .components import button, hhmmss
+from .components import attrs, button, hhmmss
 
 _routes: dict[str, str] = {}
 
@@ -134,7 +134,7 @@ class Player:
         data, mime = found
         self.cover.clear()
         with self.cover:
-            ui.element("img").props(f'src="data:{mime};base64,{base64.b64encode(data).decode()}" alt="portada"') \
+            attrs(ui.element("img"), src=f"data:{mime};base64,{base64.b64encode(data).decode()}", alt="portada") \
                 .classes("w-full h-full object-cover")
 
     # --- library ---
@@ -149,7 +149,7 @@ class Player:
         if self.cur is not None and self.cur >= len(self.files):
             self.cur = None
         self.folder_label.text = shown(self.root())
-        self.folder_label.props(f'title="{self.root()}"')
+        attrs(self.folder_label, title=str(self.root()))
         self.count.text = f"{len(self.files)} archivos"
         self.build_menu()
         self.render.refresh()

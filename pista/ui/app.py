@@ -26,7 +26,7 @@ from pista.core.report import REPO, current_os, issue_url
 from pista.core.urls import classify
 
 from . import theme
-from .components import Queue, about_dialog, ask_mix, button, close_dialogs, confirm_dialog, log_class, log_file_dialog, summary_dialog
+from .components import Queue, about_dialog, attrs, ask_mix, button, close_dialogs, confirm_dialog, log_class, log_file_dialog, summary_dialog
 from .player import Player
 
 QUALITIES = {"audio": ["128", "160", "192", "256", "320"], "video": ["360p", "480p", "720p", "1080p", "4K"]}
@@ -84,7 +84,7 @@ def index() -> None:
         log_lines.append(line)
         del log_lines[:-1000]
         last_log.text = line
-        last_log.props(f'title="{line}"')
+        attrs(last_log, title=line)
         if log_open:
             with log_box:
                 ui.label(line).classes(log_class(line))
@@ -98,7 +98,7 @@ def index() -> None:
             return
         for n, url in enumerate(links, start=1):
             kind = classify(url)
-            with ui.element("div").classes("yt-linkrow w-full").props(f'title="{url}"'):
+            with attrs(ui.element("div").classes("yt-linkrow w-full"), title=url):
                 ui.label(str(n)).classes("mono text-[11px] yt-subtle")
                 ui.label(TAGS[kind]).classes("yt-tag" + ("" if kind == "video" else " list"))
                 ui.label(re.sub(r"^https?://(www\.)?", "", url)).classes("mono text-[11px] yt-text2 truncate")

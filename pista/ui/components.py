@@ -25,6 +25,18 @@ def hhmmss(seconds: float | None) -> str:
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 
+def attrs(el: ui.element, **values: str | bool) -> ui.element:
+    """Set element props one key at a time.
+
+    Never pass data through `.props("k=v …")`: NiceGUI parses that string, so a quote inside a title,
+    URL or path would inject extra props (e.g. `onerror`, `innerHTML`) into the app window.
+    Keys use `_` for `-` (e.g. aria_disabled).
+    """
+    for key, value in values.items():
+        el.props[key.replace("_", "-")] = value
+    return el
+
+
 def button(text: str, cls: str, on_click: Callable | None = None, stop: bool = False) -> ui.element:
     """Plain <button> styled by theme classes; stop=True keeps the click from reaching the row."""
     b = ui.element("button").classes(cls)
@@ -82,9 +94,8 @@ def open_preview(track: Track) -> None:
             showing_clip = False
             player.clear()
             with player:
-                ui.element("iframe").props(
-                    f'src="{embed}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen'
-                ).classes("w-full h-full border-0")
+                attrs(ui.element("iframe"), src=embed, allow="autoplay; encrypted-media; picture-in-picture",
+                      allowfullscreen=True).classes("w-full h-full border-0")
             clip_text.text = "¿No carga? Ver clip de 30 s"
 
         async def toggle_clip() -> None:
@@ -246,12 +257,12 @@ class Queue:
                 with ui.element("div").classes("yt-check on" if on else "yt-check"):
                     ui.label("✓" if on else "")
                 if t.thumbnail:
-                    ui.element("img").props(f'src="{t.thumbnail}" loading="lazy" alt=""').classes("yt-thumb dim")
+                    attrs(ui.element("img"), src=t.thumbnail, loading="lazy", alt="").classes("yt-thumb dim")
                 else:
                     ui.element("div").classes("yt-thumb dim")
                 with ui.element("div").classes("yt-text dim"):
                     with ui.element("div").classes("yt-titleline"):
-                        ui.label(t.title).classes("yt-title").props(f'title="{t.title}"')
+                        attrs(ui.label(t.title).classes("yt-title"), title=t.title)
                         if t.id in self.new:
                             ui.label("Nuevo").classes("yt-new")
                     meta = ui.label().classes("yt-meta")
@@ -295,7 +306,7 @@ def summary_dialog(summary: Summary, folder: str, processed: int, go_player: Cal
                 for title, reason in summary.failures:
                     with ui.element("div").classes("r"):
                         ui.label(title).classes("truncate min-w-0")
-                        ui.label(reason).classes("yt-error truncate min-w-0 text-right").props(f'title="{reason}"')
+                        attrs(ui.label(reason).classes("yt-error truncate min-w-0 text-right"), title=reason)
         with ui.row().classes("yt-panel yt-line-t w-full gap-2 px-6 py-3.5 no-wrap items-center"):
             button("Cerrar", "yt-ghostbtn", dialog.close)
             ui.element("div").classes("flex-1")
@@ -349,7 +360,7 @@ async def confirm_dialog(make_plan: Callable[[bool], Plan], folder: Callable[[],
                     .style("grid-template-columns: auto minmax(0, 1fr)"):
                 ui.label("Carpeta").classes("yt-muted")
                 with ui.row().classes("gap-2 items-center no-wrap min-w-0"):
-                    ui.label(folder()).classes("mono text-xs truncate flex-1 min-w-0").props(f'title="{folder()}"')
+                    attrs(ui.label(folder()).classes("mono text-xs truncate flex-1 min-w-0"), title=folder())
                     button("Cambiar", "yt-btn h-7 text-xs px-2.5", lambda: change())
                 for k, v, mono in (("Formato", plan.format_label, False), ("Peso estimado", f"~{human_size(plan.size_bytes)}", True),
                                    ("Duración total", hhmmss(plan.duration) if plan.duration else "—", True)):
@@ -400,7 +411,7 @@ LEGAL = (
 
 def link(text: str, url: str, cls: str = "yt-a") -> ui.element:
     """Opens in the default browser (no console window), not inside the app window."""
-    return button(text, cls, lambda: webbrowser.open(url)).props(f'title="{url}"')
+    return attrs(button(text, cls, lambda: webbrowser.open(url)), title=url)
 
 
 def about_dialog(version: str, build: str, icon_svg: str, repo: str) -> None:
