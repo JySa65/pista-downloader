@@ -52,6 +52,33 @@ ask-on-risk. Forecast ~600 authored lines.
   - #6 links: `pista/core/links.py` (https only, exact host, no credentials; releases must be under /JySa65/pista-downloader/releases/ without traversal); every browser open goes through `open_url`.
   - #4/#7/#8 CI: Linux Qt from the locked `linux-qt` group (`uv sync --locked`, manylinux_2_34 wheels with hashes), Inno Setup 6.7.1 pinned and its ISCC version checked, all actions pinned by SHA with version comments (Dependabot keeps them updated), tag validated with a strict regex and passed via env, build checkout without persisted credentials, non-blocking pip-audit 2.10.1 on the exported lock (local run: no known vulnerabilities), SHA256SUMS.txt + attest-build-provenance (id-token/attestations write on the release job only), verification documented in README and SECURITY.
   - Evidence (macOS): pytest 132 passed; actionlint clean; YAML parse 6 files; local build Pista-0.3.1-macos-arm64.dmg, frozen app listens on 127.0.0.1 only and returns 400 for a foreign Host; smoke OK. Not runnable here: the Windows/Linux CI jobs (Inno pin, linux-qt sync, attestation).
+- [x] T11 chaos / fault-injection testing (route: delegated writer, branch fix/security-hardening). Commits: 34f15c4 refactor (QueueModel + BatchRunner extracted to pista/core/queue.py so the batch can be driven offline; UI harness re-run with identical results), 2598a6c test (suite in tests/chaos/, `live` marker skipped unless PISTA_LIVE=1), 7 fix commits below, plus this docs commit.
+
+  | # | Scenario | Result | Fix |
+  |---|---|---|---|
+  | 1 | Connection drop mid-download | OK: item Error with reason, batch continues, one auto-retry after the delay | — |
+  | 2 | 403 / 5xx / DNS / timeout in listing or download | OK: item errors with short reason; listing errors surface in the log | — |
+  | 2 | 429 / bot check | BUG: next item started immediately; yt-dlp retries didn't wait | 6adadc6 backoff 15→300 s (interruptible), yt-dlp retry_sleep_functions |
+  | 3 | None entries, missing fields, 5 000 entries, duplicates, Mix limit, hostile titles | OK | — |
+  | 3 | Entries with only a url | BUG: all got id '' and collapsed into one row | bec10ef |
+  | 3/5 | Titles > 255 bytes (long, emoji, Arabic) | BUG: "File name too long" for files and playlist folders | c0091c0 `%(title).150B`, folders trimmed to 150 bytes |
+  | 4 | Update check: timeout, invalid JSON, 404, 500, off-repo html_url | OK: friendly message, link not opened | — |
+  | 4 | JSON list / non-string tag, redirect to another host | BUG: exception in «Acerca de»; cross-host redirect followed | 7d0c1ae |
+  | 5 | Folder deleted, read-only, ENOSPC, folder is a file | OK: item errors with reason, batch continues | — |
+  | 6 | Binary/garbage download archive | BUG: confirm dialog crashed (UnicodeDecodeError) and yt-dlp failed every download | 15dfee7, a940042 (backup + rewrite readable entries) |
+  | 6 | Log dir / log file / cache dir not writable | BUG: blank window (setup_logging) and app failed to start (preview cache created at import) | a0eb86b temp-folder fallbacks |
+  | 7 | Zero-byte / text / corrupt-tag .mp3, broken symlink, unreadable subfolder | OK: listed, placeholder cover, no crash | — |
+  | 8 | ffmpeg / Deno missing, ffmpeg non-zero | OK: «falta ffmpeg» message; non-zero exit is an item error | — |
+  | 8/10/12 | Download ignores Stop (ffmpeg hangs in conversion) | BUG: batch and UI stuck forever, row stuck «running» | 1b93652 stop_grace 10 s then abandon; stop_all on shutdown; safe UI callbacks; busy always released |
+  | 9 | Clipboard command missing / failing / hanging | OK: bounded by the 3 s timeout, message, no console window | — |
+  | 10 | Stop during download / retry delay / restart / «×» during conversion | OK (after the stop_grace fix) | — |
+  | 11 | Two runners racing, rapid starts | OK: an item is never downloaded twice; the UI busy guard prevents a second batch | — |
+  | 12 | .part files | OK: continuedl stays on, partial downloads resume | — |
+  | 13 | Payloads in error reasons, summary, log file | OK: rendered as text, no extra props | — |
+  | — | Network timeouts | OK: yt-dlp defaults to 20 s | — |
+
+  Monkey test (tests/chaos/test_monkey.py): seeded random add/toggle/select-all/remove/clear/download/stop/retry with injected failures, checking after every step that each row has exactly one valid state, ids/checks/states/errors/fails are consistent, at most one row is «running» and none without an active batch, fails ≤ 3, progress in 0–100, and summary totals = results. Default 3 000 steps (~0.1 s); 100 000 steps with seed 20261011: passed in 19.9 s, 6 776 batches. Seeds 1–5 × 20 000 steps also passed.
+  Evidence (macOS): pytest 200 passed in 9.2 s (68 chaos tests in 8.4 s, most of it the bounded clipboard/timeout/hang tests). Not covered here: real Windows MAX_PATH behavior and killing a truly hung ffmpeg process (the batch now abandons it; the process ends when ffmpeg exits). Known UX limit: pressing «Descargar» while a batch is stopping marks the new rows «Detenida» (one click resumes them).
 
 ## Acceptance criteria
 - `uv run pytest` passes; `uv run main.py` opens themed window.
