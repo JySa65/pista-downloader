@@ -72,3 +72,19 @@ def test_off_repo_release_page_is_never_opened():
     evil = {"tag_name": "v9.9.9", "html_url": "https://evil.example/pista.exe"}
     kind, _, url = update_status(evil, "0.3.1")
     assert not is_release_url(url)  # the UI only opens it through open_url(url, is_release_url)
+
+
+@pytest.mark.parametrize("path", ["/list", "/numbers"])
+def test_unexpected_json_shapes_give_a_friendly_error(server, path):
+    kind, message, url = update_status(fetch_latest(url=server + path, timeout=2), "0.3.1")
+    assert kind == "error" and url is None
+
+
+def test_redirect_to_another_host_is_not_followed(server):
+    assert fetch_latest(url=server + "/redirect-offhost", timeout=2) is None
+
+
+@pytest.mark.parametrize("release", [[1, 2], "v1.0.0", {"tag_name": 10}, {"tag_name": None}, {"tag_name": "v1", "html_url": 5}])
+def test_update_status_never_raises(release):
+    kind, message, url = update_status(release, "0.3.1")
+    assert kind in ("new", "latest", "error") and (url is None or isinstance(url, str))
