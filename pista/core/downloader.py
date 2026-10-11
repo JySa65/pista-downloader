@@ -12,7 +12,7 @@ from yt_dlp.utils import DownloadCancelled, download_range_func, sanitize_filena
 from .models import Track
 from .plan import video_sizes
 from .system import find_deno, find_ffmpeg
-from .urls import video_id, video_url
+from .urls import is_youtube, video_id, video_url
 
 Cancelled = DownloadCancelled  # raised by download() when cancel_event is set
 
@@ -105,14 +105,23 @@ def _thumbnail(entry: dict) -> str | None:
     return thumbs[-1].get("url") if thumbs else None
 
 
+def _entry_id(entry: dict) -> str:
+    """Video id from the entry, or from its YouTube URL; '' if there is none (the entry is skipped)."""
+    vid = entry.get("id")
+    if isinstance(vid, str) and vid:
+        return vid
+    url = entry.get("url")
+    return (video_id(url) or "") if isinstance(url, str) and is_youtube(url) else ""
+
+
 def _track(entry: dict, playlist: str = "") -> Track:
-    vid = entry.get("id") or ""
+    vid = _entry_id(entry)
     return Track(
         id=vid,
         title=entry.get("title") or "(sin título)",
         channel=entry.get("channel") or entry.get("uploader") or "?",
         duration=entry.get("duration"),
-        url=f"https://www.youtube.com/watch?v={vid}" if vid else entry.get("url", ""),
+        url=f"https://www.youtube.com/watch?v={vid}",
         thumbnail=_thumbnail(entry),
         playlist=playlist,
         video_sizes=video_sizes(entry.get("formats") or []),  # only full (non-flat) extraction has formats
@@ -133,7 +142,8 @@ def list_tracks(url: str, kind: str, mix_limit: int = 50) -> list[Track]:
     if info.get("_type") != "playlist":
         return [_track(info)]
     title = info.get("title") or info.get("id") or "playlist"
-    return [_track(e, title) for e in info.get("entries") or [] if e]
+    # Entries without a usable id can't be downloaded or deduplicated: skip them.
+    return [_track(e, title) for e in info.get("entries") or [] if isinstance(e, dict) and _entry_id(e)]
 
 
 def download(

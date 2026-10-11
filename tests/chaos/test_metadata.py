@@ -78,3 +78,15 @@ def test_listing_errors_propagate_for_the_ui_to_report(fake):
     fake(DownloadError("ERROR: [youtube] AAAAAAAAAAA: HTTP Error 429: Too Many Requests"))
     with pytest.raises(DownloadError):
         dl.list_tracks("https://youtu.be/AAAAAAAAAAA", "video")
+
+
+def test_entries_without_id_use_the_url_or_are_dropped(fake):
+    fake({"_type": "playlist", "title": "L", "entries": [
+        {"url": "https://www.youtube.com/watch?v=DDDDDDDDDDD", "title": "from url"},
+        {"url": "https://www.youtube.com/watch?v=EEEEEEEEEEE", "title": "also from url"},
+        {"title": "no id, no url"},
+        {"url": "https://example.com/x", "title": "not youtube"},
+    ]})
+    tracks = dl.list_tracks("https://www.youtube.com/playlist?list=PLx", "playlist")
+    assert [t.id for t in tracks] == ["DDDDDDDDDDD", "EEEEEEEEEEE"]
+    assert all(t.url.startswith("https://www.youtube.com/watch?v=") for t in tracks)
