@@ -14,6 +14,8 @@ Download the installer for your system from the repository's **Releases** page (
 
 The bundled ffmpeg/ffprobe are LGPL builds (Windows/Linux: [BtbN FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds) `lgpl` variant; macOS: compiled from the official ffmpeg 8.1.3 and LAME 3.100 sources by `packaging/build_ffmpeg_macos.sh`). Their license texts are shipped next to the binaries (`ffmpeg/LICENSE-*.txt` inside the app).
 
+YouTube now requires solving JavaScript challenges; without a JS runtime yt-dlp falls back to limited clients and downloads can fail with **HTTP 403**. The installers therefore bundle [Deno](https://deno.com) (MIT, `deno/LICENSE-deno.txt`) and yt-dlp's challenge-solver scripts ([yt-dlp-ejs](https://github.com/yt-dlp/ejs), Unlicense/MIT/ISC). From source, `uv sync` installs both (`yt-dlp[default,deno]`).
+
 ## Run from source
 
 ### Requirements
@@ -29,7 +31,7 @@ The bundled ffmpeg/ffprobe are LGPL builds (Windows/Linux: [BtbN FFmpeg-Builds](
 
 If the native window can't be used (e.g. Linux without GTK/Qt) the app opens in your browser instead. You can force that with `uv run main.py --browser` or `YTMP3_BROWSER=1`.
 
-"Pegar" (the `+` button with an empty field) reads the clipboard with `pbpaste` (macOS), PowerShell `Get-Clipboard` (Windows) or `wl-paste` / `xclip` / `xsel` (Linux). If none is available, paste into the field with Ctrl/Cmd+V.
+**Pegar** reads the clipboard with `pbpaste` (macOS), PowerShell `Get-Clipboard` (Windows) or `wl-paste` / `xclip` / `xsel` (Linux). If none is available, paste into the field with Ctrl/Cmd+V.
 
 ### Start
 
@@ -41,10 +43,14 @@ The window opens maximized.
 
 ## Descargar tab
 
-1. Paste a link in the field and press Enter (or `+`; with the field empty, `+` pastes from the clipboard). Each link shows its type: Video, Playlist or Mix.
-2. Press **Cargar**: the tracks are listed (nothing is downloaded yet), all checked.
-3. Uncheck what you don't want (**Todas** / **Ninguna**; click a row to toggle). Choose the output folder, **Formato** (Audio · MP3 / Video · MP4) and the quality (kbps for MP3, resolution for MP4).
-4. Press **Descargar seleccionadas**. Each row shows its progress and status; **Detener** aborts the current download.
+1. Paste or type links in the **Links** box (one per line), then press **+ Añadir** or Ctrl/⌘+Enter. **Pegar** adds the links in the clipboard directly. Each link shows its type: Video, Playlist or Mix.
+2. Press **Cargar**: the tracks are added to the **Cola** (nothing is downloaded yet), all checked. While a download is running the button reads **Cargar a la cola**: new tracks go to the end of the running batch and get a «Nuevo» tag.
+3. Uncheck what you don't want (**Todas** / **Ninguna**; click a row to toggle). **Limpiar cola** removes finished, failed and unchecked rows. Choose the output folder, **Formato** (Audio · MP3 / Video · MP4) and the quality.
+4. Press **Descargar seleccionadas**. Each row shows its status (En cola, %, Listo, Ya estaba, Reintentando (n/3), Error, Detenida); **Detener** aborts the current download.
+5. Failed tracks are retried once automatically 10 s after the batch; after that, a red row shows the short reason and **↻ Reintentar**.
+6. When the batch ends (or is stopped) a **summary** shows downloaded / already there / failed / stopped, total size, time and folder, with **Ir al reproductor**, **Abrir carpeta** and **Reintentar fallidas**. **Ver resumen** reopens it.
+
+**Registro** (below the queue) shows the last line; **Expandir** shows the full lines and **Abrir registro** the whole log file, with a button to show it in Finder / Explorer / the file manager. The file is `youtube-download.log` (rotating, 2 MB × 4) in the per-user cache folder: `~/Library/Caches/YouTubeDownload/logs` (macOS), `%LOCALAPPDATA%\YouTubeDownload\Cache\logs` (Windows), `~/.cache/YouTubeDownload/logs` (Linux). It includes yt-dlp's own warnings and errors, so attach it when reporting a problem.
 
 URL types:
 
@@ -62,7 +68,7 @@ Output:
 
 ## Reproductor tab
 
-Lists the MP3s in the download folder (or another folder from the folder menu, including subfolders), with search, play/pause, previous/next, Aleatorio, Repetir, a seek bar and volume. The artist is taken from `Artist - Title` file names, otherwise the subfolder name.
+Lists the MP3 and MP4 files in the download folder (or another folder from the folder menu, including subfolders), with search, play/pause, previous/next, Aleatorio, Repetir, a seek bar and volume. MP3s show the cover embedded at download time (the YouTube thumbnail, plus title/artist tags); MP4s play in the same space, with **⛶ Pantalla completa** (Esc exits). The artist is taken from `Artist - Title` file names, otherwise the subfolder name.
 
 **Modo oscuro / Modo claro** in the title bar switches the theme.
 
