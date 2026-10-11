@@ -90,6 +90,9 @@ button:disabled { opacity: .45; cursor: default; pointer-events: none; }
 .yt-toggle.on { background: var(--accent-soft); color: var(--link); }
 .yt-linkrow { display: grid; grid-template-columns: 18px 64px minmax(0,1fr) 22px; gap: 8px; align-items: center;
   padding: 6px 6px 6px 8px; border-radius: 6px; background: var(--btn); border: 1px solid var(--line); }
+.yt-linkrow.err { border-color: var(--danger-border); background: var(--danger-soft); }
+.yt-linkerr { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; min-width: 0; }
+.yt-linkerr .yt-reason { flex: 1; }
 .yt-tag { font-size: 10px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; text-align: center;
   padding: 2px 0; border-radius: 4px; background: var(--line); color: var(--muted); }
 .yt-tag.list { background: var(--accent-soft); color: var(--link); }

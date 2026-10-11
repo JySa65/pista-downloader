@@ -13,6 +13,7 @@ from nicegui import app, core, run, ui
 from pista import build_date, version
 from pista.core.applog import setup_logging
 from pista.core.batch import MAX_ATTEMPTS, human_size, human_time, short_error
+from pista.core.loading import load_links, load_message
 from pista.core.downloader import ARCHIVES, download, list_tracks
 from pista.core.queue import BatchRunner, stop_all
 from pista.core.plan import archived_ids, plan_download
@@ -69,6 +70,7 @@ def index() -> None:
     logger.info("v%s · yt-dlp %s · ffmpeg=%s · deno=%s", version(), yt_dlp_version, find_ffmpeg(), find_deno())
     dark = False
     links: list[str] = []
+    link_errors: dict[str, str] = {}  # url -> why it couldn't be loaded
     fmt, quality = "audio", "192"
     busy = False
     log_open = False
@@ -96,11 +98,16 @@ def index() -> None:
             return
         for n, url in enumerate(links, start=1):
             kind = classify(url)
-            with attrs(ui.element("div").classes("yt-linkrow w-full"), title=url):
+            error = link_errors.get(url)
+            with attrs(ui.element("div").classes("yt-linkrow w-full" + (" err" if error else "")), title=url):
                 ui.label(str(n)).classes("mono text-[11px] yt-subtle")
                 ui.label(TAGS[kind]).classes("yt-tag" + ("" if kind == "video" else " list"))
                 ui.label(re.sub(r"^https?://(www\.)?", "", url)).classes("mono text-[11px] yt-text2 truncate")
                 button("×", "yt-ghost w-5 h-5 text-sm p-0", lambda u=url: set_links([x for x in links if x != u]))
+                if error:
+                    with ui.element("div").classes("yt-linkerr"):
+                        attrs(ui.label(error).classes("yt-reason"), title=error)
+                        button("↻ Reintentar", "yt-a text-xs shrink-0", lambda u=url: load([u]))
 
     @ui.refreshable
     def quality_picker() -> None:
@@ -268,6 +275,8 @@ def index() -> None:
     # ---------- links ----------
     def set_links(new: list[str]) -> None:
         links[:] = new
+        for gone in set(link_errors) - set(links):
+            link_errors.pop(gone)
         counts = {k: sum(classify(u) == k for u in links) for k in TAGS}
         parts = [f"{counts['video']} video{'s' if counts['video'] > 1 else ''}" if counts["video"] else "",
                  f"{counts['playlist']} playlist" if counts["playlist"] else "",
@@ -359,34 +368,35 @@ def index() -> None:
         summary_btn.set_visibility(not value and bool(last_summary))
 
     # ---------- actions ----------
-    async def load() -> None:
-        if not links:
+    async def load(only: list[str] | None = None) -> None:
+        urls = list(only or links)
+        if not urls:
             ui.notify("Añade al menos un link (http/https).", type="warning")
             return
         load_btn.props("disabled")
-        limit = int(mix_limit.value)
-        found = []
         try:
-            for url in list(links):
-                kind = classify(url)
-                if kind == "mix":
-                    kind = await ask_mix(limit)
-                    if kind is None:
-                        continue
-                try:
-                    result = await run.io_bound(list_tracks, url, kind, limit) or []
-                except Exception as e:
-                    log(f"✗ {url}: {short_error(str(e))}", logging.ERROR)
-                    continue
-                log(f"→ {url} ({TAGS[kind].lower()}, {len(result)} pistas)")
-                found += result
+            outcomes = await load_links(urls, list_tracks, limit=int(mix_limit.value), choose_mix=lambda u: ask_mix(int(mix_limit.value)),
+                                        run_io=run.io_bound)
         finally:
             load_btn.props(remove="disabled")
+        found = []
+        for o in outcomes:
+            if o.error:
+                link_errors[o.url] = o.error
+                log(f"✗ {o.url}: {o.raw or o.error}", logging.ERROR)
+            elif not o.skipped:
+                link_errors.pop(o.url, None)
+                log(f"→ {o.url} ({TAGS[o.kind].lower()}, {len(o.tracks)} pistas)")
+                found += o.tracks
         added = queue.add_tracks(found, new=busy)
-        set_links([])
-        log(f"{added} pista(s) añadidas al final de la cola.")
+        loaded = {o.url for o in outcomes if o.tracks}
+        set_links([u for u in links if u not in loaded])  # failed or cancelled links stay, with their reason
+        text, kind = load_message(outcomes, added)
+        log(text, logging.ERROR if kind == "error" else logging.WARNING if kind == "warning" else logging.INFO)
+        ui.notify(text, type={"ok": "positive", "info": "info", "warning": "warning", "error": "negative"}[kind],
+                  multi_line=True)
         if not busy:
-            status.text = f"{len(queue.tracks)} pista(s) en la cola."
+            status.text = text if kind in ("error", "warning") else f"{len(queue.tracks)} pista(s) en la cola."
             set_total()
 
     def stop() -> None:
