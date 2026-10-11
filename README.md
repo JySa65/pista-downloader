@@ -1,6 +1,14 @@
 # YouTube → MP3
 
-Desktop app (NiceGUI, native window) to download YouTube videos, playlists and Mixes as **MP3 or MP4** with yt-dlp, plus a small player for the downloaded MP3s.
+[![Release](https://img.shields.io/github/v/release/JySa65/pista-downloader?sort=semver)](https://github.com/JySa65/pista-downloader/releases/latest)
+[![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
+[![Build](https://github.com/JySa65/pista-downloader/actions/workflows/release.yml/badge.svg)](https://github.com/JySa65/pista-downloader/actions/workflows/release.yml)
+
+A free, open-source desktop app for Windows, macOS and Linux that downloads YouTube videos, playlists and Mixes as **MP3 or MP4** with [yt-dlp](https://github.com/yt-dlp/yt-dlp), and includes a small player for the downloaded files. The installers bundle everything they need (ffmpeg, a JavaScript runtime), so there is nothing else to install.
+
+Aplicación de escritorio libre y gratuita para Windows, macOS y Linux que descarga videos, listas y Mixes de YouTube como **MP3 o MP4** con yt-dlp, con un reproductor para lo descargado.
+
+> **Aviso legal / Legal notice** — see [below](#aviso-legal--legal-notice).
 
 ## Descargar e instalar
 
@@ -92,3 +100,17 @@ Local build for the current OS: `uv sync --group build && uv run python packagin
 **yt-dlp updates.** YouTube regularly breaks old yt-dlp versions. `.github/workflows/update-yt-dlp.yml` runs every Monday (or manually), upgrades yt-dlp in `uv.lock` and opens a PR. Merge it and tag a new version to ship it. The repository setting *Settings → Actions → General → Allow GitHub Actions to create and approve pull requests* must be enabled. PRs opened with the workflow token don't trigger other workflows, so run tests locally or re-run them from the PR if needed.
 
 **ffmpeg pins.** The BtbN download URLs and SHA256 sums live in `packaging/build.py`; BtbN eventually deletes old autobuilds, so when that download 404s, pick a newer `autobuild-*` release (an `ffmpeg-n<ver>-…-lgpl-<ver>` asset) and update the URL and checksum.
+
+## Aviso legal / Legal notice
+
+**ES —** Esta es una herramienta para uso personal. Cada usuario es responsable de cumplir los [Términos de servicio de YouTube](https://www.youtube.com/t/terms) y las leyes de derechos de autor de su país. Descarga solo contenido sobre el que tengas derechos o permiso (por ejemplo, tus propios videos o material con licencia libre). Este proyecto no está afiliado, asociado, respaldado ni patrocinado por YouTube ni por Google LLC; «YouTube» es una marca de Google LLC y se menciona solo para describir con qué sitio funciona la aplicación.
+
+**EN —** This is a tool for personal use. Users are responsible for complying with [YouTube's Terms of Service](https://www.youtube.com/t/terms) and the copyright laws of their country. Only download content you own or have permission to download (for example your own uploads or openly licensed material). This project is not affiliated with, associated with, endorsed or sponsored by YouTube or Google LLC; "YouTube" is a trademark of Google LLC and is used only to describe which site the app works with.
+
+## Licencia / License
+
+[GNU General Public License v3.0 or later](LICENSE). The installers also contain third-party components under their own licenses; see [THIRD_PARTY_NOTICES.md](.github/THIRD_PARTY_NOTICES.md).
+
+## Contribuir / Contributing
+
+See [CONTRIBUTING.md](.github/CONTRIBUTING.md) and the [Code of Conduct](.github/CODE_OF_CONDUCT.md). Report security issues privately as described in [SECURITY.md](.github/SECURITY.md). Bugs: use **Reportar un problema** in the app, which opens the bug form with your version and OS filled in.
