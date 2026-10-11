@@ -124,7 +124,21 @@ button:disabled { opacity: .45; cursor: default; pointer-events: none; }
 .yt-note-err { background: var(--danger-soft); color: var(--danger); }
 .yt-note-info { background: var(--accent-soft); color: var(--link); }
 .yt-note-warn { background: var(--amber-soft); color: var(--amber); }
-.yt-primary:disabled { opacity: .4; }
+.yt-inactive { opacity: .4; cursor: not-allowed; }
+.yt-a { border: 0; background: transparent; padding: 0; font: inherit; color: var(--link); cursor: pointer; }
+.yt-a:hover { text-decoration: underline; }
+.yt-footnote { font-size: 11px; line-height: 1.5; color: var(--subtle); width: 100%; }
+.yt-footnote > * { display: inline; } .yt-footnote > .yt-a { margin-left: 4px; }
+.yt-consent { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; font-size: 12px; line-height: 1.5;
+  color: var(--text-2); }
+.yt-consent .yt-check { flex-shrink: 0; margin-top: 1px; }
+.yt-about-box { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.yt-about-h { display: block; padding: 9px 14px; font-size: 11px; font-weight: 600; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--muted); background: var(--panel); }
+.yt-legal { padding: 12px 14px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line);
+  font-size: 12px; color: var(--muted); line-height: 1.55; }
+.yt-about-k { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.yt-upd-new { color: var(--link); } .yt-upd-latest { color: var(--ok); } .yt-upd-error { color: var(--amber); }
 .yt-new { flex-shrink: 0; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em;
   padding: 1px 5px; border-radius: 4px; background: var(--accent-soft); color: var(--link); }
 .yt-retry { height: 28px; border: 1px solid var(--danger-border); background: transparent; color: var(--danger);

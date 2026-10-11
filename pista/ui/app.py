@@ -12,7 +12,7 @@ from pathlib import Path
 
 from nicegui import app, native, run, ui
 
-from pista import version
+from pista import build_date, version
 from pista.core.applog import setup_logging
 from pista.core.batch import MAX_ATTEMPTS, Result, human_size, human_time, short_error, summarize
 from pista.core.downloader import ARCHIVES, Cancelled, download, list_tracks
@@ -22,11 +22,11 @@ from yt_dlp.version import __version__ as yt_dlp_version
 from pista.core.system import (
     LEGACY_APP_NAME, migrate_legacy, user_cache_dir, default_outdir, find_deno, find_ffmpeg, has_ffmpeg, log_dir, open_path, read_clipboard, reveal_label, reveal_path,
 )
-from pista.core.report import current_os, issue_url
+from pista.core.report import REPO, current_os, issue_url
 from pista.core.urls import classify
 
 from . import theme
-from .components import Queue, ask_mix, button, close_dialogs, confirm_dialog, log_class, log_file_dialog, summary_dialog
+from .components import Queue, about_dialog, ask_mix, button, close_dialogs, confirm_dialog, log_class, log_file_dialog, summary_dialog
 from .player import Player
 
 QUALITIES = {"audio": ["128", "160", "192", "256", "320"], "video": ["360p", "480p", "720p", "1080p", "4K"]}
@@ -37,6 +37,7 @@ FORMATS = {"audio": "Audio · MP3", "video": "Video · MP4"}
 TAGS = {"video": "Video", "playlist": "Playlist", "mix": "Mix"}
 RETRY_DELAY = 10  # seconds before the automatic second attempt of failed items
 logger = logging.getLogger("pista")
+CONSENT = {"ok": False}  # «Confirmo que tengo derecho…»: remembered for this app session only
 
 
 async def pick_folder(start: str) -> str | None:
@@ -120,9 +121,13 @@ def index() -> None:
         with ui.element("div").classes("yt-seg"):
             tab_dl = button("Descargar", "on", lambda: show_tab("download"))
             tab_pl = button("Reproductor", "", lambda: show_tab("player"))
-        with ui.row().classes("justify-end"):
+        with ui.row().classes("justify-end gap-1.5 no-wrap"):
+            button("Acerca de", "yt-btn h-7 text-xs px-2.5 yt-muted", lambda: open_about())
             with ui.element("button").classes("yt-btn h-7 text-xs px-2.5 yt-muted").on("click", lambda: toggle_theme()):
                 theme_label = ui.label("Modo oscuro")
+
+    def open_about() -> None:
+        about_dialog(version(), build_date(), theme.ICON_SVG, REPO)
 
     def toggle_theme() -> None:
         nonlocal dark
@@ -181,6 +186,11 @@ def index() -> None:
                         ui.label("Canciones por Mix").classes("yt-label")
                         mix_value = ui.label("50 / 50").classes("mono text-xs yt-text2")
                     mix_limit = ui.slider(min=1, max=50, value=50).props("dense color=primary")
+
+            ui.element("div").classes("flex-1")
+            with ui.element("div").classes("yt-footnote"):
+                ui.label("Descarga solo contenido del que tengas derechos. Tú eres responsable de su uso.")
+                button("Aviso legal", "yt-a", lambda: open_about())
 
         with ui.column().classes("min-h-0 gap-0 no-wrap"):
             with ui.row().classes("w-full items-center justify-between px-6 pt-[18px] pb-3 shrink-0 no-wrap"):
@@ -408,10 +418,10 @@ def index() -> None:
         if not busy:
             asyncio.create_task(start_download())  # otherwise the running batch picks them up
 
-    def make_plan():
+    def make_plan(consent: bool = False):
         out = Path((outdir.value or "").strip()).expanduser()
         items = [(t, queue.state[t.id][0], bool(queue.checked.get(t.id))) for t in queue.tracks]
-        return plan_download(items, fmt, quality, archived_ids(out / ARCHIVES[fmt]), busy)
+        return plan_download(items, fmt, quality, archived_ids(out / ARCHIVES[fmt]), busy, consent)
 
     async def confirm_and_start() -> None:
         if not queue.tracks:
@@ -423,7 +433,7 @@ def index() -> None:
         if not (outdir.value or "").strip():
             ui.notify("Indica una carpeta de salida.", type="warning")
             return
-        plan = await confirm_dialog(make_plan, lambda: outdir.value, change_outdir)
+        plan = await confirm_dialog(make_plan, lambda: outdir.value, change_outdir, CONSENT)
         if plan is None:
             return
         for tid in plan.skip:  # already in the archive for this format: no network needed

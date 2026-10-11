@@ -113,7 +113,9 @@ Local build for the current OS: `uv sync --group build && uv run python packagin
 
 ## Licencia / License
 
-[GNU General Public License v3.0 or later](LICENSE). The installers also contain third-party components under their own licenses; see [THIRD_PARTY_NOTICES.md](.github/THIRD_PARTY_NOTICES.md).
+© 2026 jysa65 — [github.com/JySa65](https://github.com/JySa65) · [jysa65.dev](https://jysa65.dev/es/)
+
+Pista is free software: you can redistribute it and/or modify it under the terms of the [GNU General Public License v3.0 or later](LICENSE). It comes with no warranty. The installers also contain third-party components under their own licenses; see [THIRD_PARTY_NOTICES.md](.github/THIRD_PARTY_NOTICES.md).
 
 ## Contribuir / Contributing
 

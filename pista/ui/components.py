@@ -10,6 +10,7 @@ from pista.core.downloader import preview_clip
 from pista.core.models import Track
 from pista.core.plan import Plan
 from pista.core.system import user_cache_dir
+from pista.core.updates import fetch_latest, update_status
 
 PREVIEW_DIR = user_cache_dir() / "previews"
 PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
@@ -333,14 +334,14 @@ def log_class(line: str) -> str:
     return "ok" if "✓" in line else ""
 
 
-async def confirm_dialog(make_plan: Callable[[], Plan], folder: Callable[[], str],
-                         change_folder: Callable) -> Plan | None:
+async def confirm_dialog(make_plan: Callable[[bool], Plan], folder: Callable[[], str],
+                         change_folder: Callable, consent: dict) -> Plan | None:
     """«¿Descargar N pista(s)?» review; returns the plan to run, or None if cancelled."""
     with closable(ui.dialog()) as dialog, ui.card().classes("yt-modal yt-confirm w-[500px] max-w-[95vw] max-h-[90vh] overflow-auto p-0 gap-0 no-wrap"):
 
         @ui.refreshable
         def body() -> None:
-            plan = make_plan()
+            plan = make_plan(consent["ok"])
             with ui.column().classes("px-6 pt-[22px] pb-1.5 gap-1 w-full"):
                 ui.label(f"¿Descargar {plan.count} pista(s)?").classes("text-[17px] font-semibold")
                 ui.label("Revisa antes de empezar.").classes("text-[13px] yt-muted")
@@ -358,17 +359,95 @@ async def confirm_dialog(make_plan: Callable[[], Plan], folder: Callable[[], str
                 with ui.column().classes("mx-6 mb-4 gap-1.5").style("width: calc(100% - 48px)"):
                     for kind, text in plan.notes:
                         ui.label(text).classes(f"yt-note yt-note-{kind}")
+            with ui.element("div").classes("yt-consent mx-6 mb-4").style("width: calc(100% - 48px)") \
+                    .on("click", lambda: toggle_consent()):
+                with ui.element("div").classes("yt-check on" if consent["ok"] else "yt-check"):
+                    ui.label("✓" if consent["ok"] else "")
+                ui.label("Confirmo que tengo derecho a descargar este contenido (es mío, tiene licencia libre o "
+                         "tengo permiso) y que soy responsable de su uso.")
             with ui.row().classes("yt-panel yt-line-t w-full justify-end gap-2 px-6 py-3.5 no-wrap"):
                 button("Cancelar", "yt-btn", lambda: dialog.submit(None))
-                go = button("Descargar", "yt-primary yt-confirm-go", lambda: dialog.submit(plan) if plan.count else None)
-                if not plan.count:
-                    go.props("disabled")
+                go = button("Descargar", "yt-primary yt-confirm-go", lambda: dialog.submit(plan) if plan.can_start else None)
+                if not plan.can_start:
+                    # Not the `disabled` attribute: Quasar forces [disabled] to opacity .6 (!important, layered).
+                    go.classes("yt-inactive").props('aria-disabled="true"')
 
         async def change() -> None:
             await change_folder()
+            body.refresh()
+
+        def toggle_consent() -> None:
+            consent["ok"] = not consent["ok"]
             body.refresh()
 
         body()
     result = await dialog
     dialog.delete()
     return result
+
+
+DEVELOPER = (("Nombre", "jysa65", None),
+             ("GitHub", "github.com/JySa65", "https://github.com/JySa65"),
+             ("Sitio web", "jysa65.dev", "https://jysa65.dev/es/"))
+LEGAL = (
+    "Esta herramienta se ofrece «tal cual», sin garantías. Úsala solo con contenido propio, con licencia libre "
+    "o del que tengas permiso del titular de los derechos.",
+    "Tú eres responsable de cumplir las leyes de derechos de autor de tu país y las condiciones de uso de cada "
+    "plataforma. El desarrollador no se hace responsable del uso que se le dé.",
+    "No está afiliada, patrocinada ni aprobada por YouTube ni Google. Las marcas mencionadas pertenecen a sus dueños.",
+)
+
+
+def link(text: str, url: str, cls: str = "yt-a") -> ui.element:
+    """Opens in the default browser (no console window), not inside the app window."""
+    return button(text, cls, lambda: webbrowser.open(url)).props(f'title="{url}"')
+
+
+def about_dialog(version: str, build: str, icon_svg: str, repo: str) -> None:
+    found = {"url": None}
+
+    async def check_updates() -> None:
+        status.text, status_link.visible = "Buscando…", False
+        release = await run.io_bound(fetch_latest)
+        kind, message, url = update_status(release, version)
+        status.text = message
+        status.classes(replace=f"text-xs yt-upd-{kind}")
+        found["url"] = url
+        status_link.visible = bool(url)
+
+    with closable(ui.dialog()) as dialog, ui.card().classes("yt-modal yt-about w-[480px] max-w-[95vw] max-h-[90vh] p-0 gap-0 no-wrap"):
+        with ui.column().classes("flex-1 min-h-0 overflow-auto pb-4 gap-0 w-full no-wrap"):
+            with ui.element("div").classes("grid items-center px-6 pt-[22px] pb-4 gap-x-4 gap-y-1 w-full") \
+                    .style("grid-template-columns: 56px minmax(0, 1fr)"):
+                ui.html(icon_svg.replace('width="20" height="20"', 'width="56" height="56"'), sanitize=False) \
+                    .classes("flex").style("grid-row: span 2")
+                with ui.column().classes("gap-[3px]"):
+                    ui.label("Pista").classes("text-[17px] font-semibold")
+                    ui.label(f"Versión {version} · build {build}").classes("mono text-xs yt-muted")
+                ui.label("Descarga audio y video por lotes o por Mix, y reprodúcelos desde tu carpeta.") \
+                    .classes("text-xs yt-muted leading-normal")
+            with ui.element("div").classes("yt-about-box mx-6").style("width: calc(100% - 48px)"):
+                ui.label("Desarrollador").classes("yt-about-h")
+                with ui.element("div").classes("grid gap-x-3 gap-y-1.5 px-3.5 py-2.5 text-[13px]") \
+                        .style("grid-template-columns: 80px minmax(0, 1fr)"):
+                    for key, value, url in DEVELOPER:
+                        ui.label(key).classes("yt-muted")
+                        link(value, url, "yt-a justify-self-start") if url else ui.label(value)
+            with ui.column().classes("yt-legal mx-6 mt-3.5 gap-1.5").style("width: calc(100% - 48px)"):
+                ui.label("Aviso legal").classes("yt-about-k")
+                for paragraph in LEGAL:
+                    ui.label(paragraph)
+            with ui.row().classes("px-6 pt-2.5 gap-1 text-xs yt-subtle items-baseline"):
+                ui.label("Usa yt-dlp y FFmpeg (software libre, con sus propias licencias). © 2026 jysa65 ·")
+                link("Licencia GPLv3", f"https://github.com/{repo}/blob/main/LICENSE")
+                ui.label("·")
+                link("Avisos de terceros", f"https://github.com/{repo}/blob/main/.github/THIRD_PARTY_NOTICES.md")
+            with ui.row().classes("px-6 pt-3 gap-2 items-center no-wrap"):
+                status = ui.label().classes("text-xs")
+                status_link = button("Ver la versión nueva", "yt-a text-xs", lambda: webbrowser.open(found["url"]))
+                status_link.visible = False
+        with ui.row().classes("yt-panel yt-line-t w-full justify-end gap-2 px-6 py-3.5 no-wrap shrink-0"):
+            button("Buscar actualizaciones", "yt-btn h-[34px]", check_updates)
+            button("Cerrar", "yt-primary h-[34px]", dialog.close)
+    dialog.on("hide", dialog.delete)
+    dialog.open()

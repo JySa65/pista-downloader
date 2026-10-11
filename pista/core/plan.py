@@ -53,10 +53,11 @@ class Plan:
     size_bytes: int
     duration: int
     notes: list[tuple[str, str]] = field(default_factory=list)  # (kind: plain|err|info|warn, text)
+    can_start: bool = False  # pending items AND the user confirmed they have the right to download them
 
 
 def plan_download(items: list[tuple[Track, str, bool]], fmt: str, quality: str,
-                  archived: set[str], running: bool) -> Plan:
+                  archived: set[str], running: bool, consent: bool = False) -> Plan:
     """items: (track, state, checked) in queue order."""
     selected = [(t, s) for t, s, checked in items if checked]
     pending = [t for t, s in selected if s in PENDING_STATES and t.id not in archived]
@@ -80,4 +81,5 @@ def plan_download(items: list[tuple[Track, str, bool]], fmt: str, quality: str,
         size_bytes=sum(estimate_bytes(t, fmt, quality) for t in pending),
         duration=sum(int(t.duration or 0) for t in pending),
         notes=notes,
+        can_start=bool(pending) and consent,
     )

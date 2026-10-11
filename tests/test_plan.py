@@ -66,3 +66,10 @@ def test_plan_running_and_nothing_pending_notes():
         ("info", "Ya hay una descarga en curso; estas se añaden a la misma cola."),
         ("warn", "No hay pistas pendientes seleccionadas."),
     ]
+
+
+def test_consent_required_to_start():
+    items = [(t("q", 100), "queued", True)]
+    assert plan_download(items, "audio", "128", set(), running=False).can_start is False
+    assert plan_download(items, "audio", "128", set(), running=False, consent=True).can_start is True
+    assert plan_download([], "audio", "128", set(), running=False, consent=True).can_start is False

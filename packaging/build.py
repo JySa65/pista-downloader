@@ -12,6 +12,8 @@ ffmpeg/ffprobe are LGPL builds: BtbN `*-lgpl` archives on Windows/Linux (pinned 
 compiled from pinned sources on macOS (build_ffmpeg_macos.sh).
 """
 import argparse
+import datetime
+import json
 import hashlib
 import os
 import shutil
@@ -107,6 +109,7 @@ def pyinstaller(ffmpeg_dir: Path) -> None:
             "--add-data", f"{PKG / 'icon.png'}{sep}.",  # Linux window icon
             "--add-data", f"{ROOT / 'LICENSE'}{sep}.",
             "--add-data", f"{NOTICES}{sep}.",
+            "--add-data", f"{build_info()}{sep}.",
             "--add-binary", f"{ffmpeg_dir / ('ffmpeg' + exe)}{sep}ffmpeg",
             "--add-binary", f"{ffmpeg_dir / ('ffprobe' + exe)}{sep}ffmpeg"]
     for lic in ffmpeg_dir.glob("LICENSE*"):
@@ -116,6 +119,14 @@ def pyinstaller(ffmpeg_dir: Path) -> None:
         args += ["--collect-submodules", "qtpy"]
     run(sys.executable, "-m", "PyInstaller", *args, "--distpath", DIST, "--workpath", BUILD / "pyinstaller",
         "--specpath", BUILD, ROOT / "main.py")
+
+
+def build_info() -> Path:
+    """build_info.json with the build date shown in «Acerca de» (UTC, YYYY.MM.DD)."""
+    path = BUILD / "build_info.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"date": datetime.datetime.now(datetime.UTC).strftime("%Y.%m.%d")}), "utf-8")
+    return path
 
 
 def deno_args(sep: str) -> list[str]:
