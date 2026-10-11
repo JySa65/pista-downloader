@@ -179,14 +179,15 @@ def index() -> None:
 
         with ui.column().classes("min-h-0 gap-0 no-wrap"):
             with ui.row().classes("w-full items-center justify-between px-6 pt-[18px] pb-3 shrink-0 no-wrap"):
-                with ui.row().classes("items-baseline gap-2.5"):
-                    ui.label("Cola").classes("text-lg font-semibold")
-                    counter = ui.label().classes("text-[13px] yt-muted")
-                with ui.row().classes("gap-1 items-center no-wrap"):
+                # If space runs out, the title/counter shrink (ellipsis); the action buttons never do.
+                with ui.row().classes("items-baseline gap-2.5 no-wrap min-w-0"):
+                    ui.label("Cola").classes("text-lg font-semibold shrink-0")
+                    counter = ui.label().classes("text-[13px] yt-muted truncate min-w-0")
+                with ui.row().classes("gap-1 items-center no-wrap shrink-0"):
                     button("Todas", "yt-link", lambda: queue.select_all(True))
                     button("Ninguna", "yt-link", lambda: queue.select_all(False))
                     ui.element("div").classes("yt-divider")
-                    button("Limpiar cola", "yt-btn sm", lambda: clear_queue()).props(
+                    button("Limpiar cola", "yt-btn yt-sm", lambda: clear_queue()).props(
                         'title="Quita las terminadas, las fallidas y las desmarcadas"')
             with ui.element("div").classes("yt-qhead shrink-0"):
                 for h, cls in (("", ""), ("", ""), ("Título", ""), ("Estado", "text-center"), ("", "")):
@@ -202,7 +203,7 @@ def index() -> None:
                     last_log = ui.label("Listo.").classes("yt-logline flex-1 min-w-0")
                     with ui.element("button").classes("yt-link").on("click", lambda: toggle_log()):
                         log_toggle = ui.label("Expandir")
-                    button("Abrir registro", "yt-btn sm", lambda: log_file_dialog(
+                    button("Abrir registro", "yt-btn yt-sm", lambda: log_file_dialog(
                         log_path, reveal_label(), lambda: safely(lambda: reveal_path(log_path), "mostrar el archivo")))
                 log_box = ui.element("div").classes("yt-logbox h-[170px] mx-4 mb-2.5") \
                     .style("width: calc(100% - 32px)")

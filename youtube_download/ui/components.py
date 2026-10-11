@@ -266,7 +266,7 @@ def summary_dialog(summary: Summary, folder: str, processed: int, go_player: Cal
             button("Cerrar", "yt-ghostbtn", dialog.close)
             ui.element("div").classes("flex-1")
             if retry_failed:
-                button("Reintentar fallidas", "yt-danger md", lambda: (dialog.close(), retry_failed()))
+                button("Reintentar fallidas", "yt-danger yt-md", lambda: (dialog.close(), retry_failed()))
             button("Abrir carpeta", "yt-btn", open_folder)
             button("Ir al reproductor", "yt-primary", lambda: (dialog.close(), go_player()))
     dialog.on("hide", dialog.delete)

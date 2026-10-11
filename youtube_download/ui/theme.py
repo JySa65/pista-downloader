@@ -124,7 +124,7 @@ button:disabled { opacity: .45; cursor: default; pointer-events: none; }
 .yt-notice::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-top: 6px; flex-shrink: 0; }
 .yt-sep { height: 1px; background: var(--line); flex-shrink: 0; width: 100%; }
 .yt-divider { width: 1px; height: 16px; background: var(--btn-border); margin: 0 4px; }
-.yt-btn.sm { height: auto; font-size: 12px; padding: 5px 10px; border-radius: 6px; }
+.yt-btn.yt-sm { height: auto; font-size: 12px; padding: 5px 10px; border-radius: 6px; }
 .yt-logline { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--log); white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; }
 .yt-logbox { font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 1.65; white-space: pre-wrap;
@@ -145,7 +145,7 @@ button:disabled { opacity: .45; cursor: default; pointer-events: none; }
 .yt-ghostbtn { height: 36px; padding: 0 14px; border: 0; background: transparent; color: var(--muted); font: inherit;
   font-size: 13px; border-radius: 7px; cursor: pointer; }
 .yt-ghostbtn:hover { background: var(--btn-hover); }
-.yt-danger.md { height: 36px; padding: 0 14px; }
+.yt-danger.yt-md { height: 36px; padding: 0 14px; }
 .yt-fmt { font-size: 10px; font-weight: 600; letter-spacing: .03em; text-align: center; padding: 2px 0; border-radius: 4px;
   background: var(--accent-soft); color: var(--link); }
 .yt-fmt.mp4 { background: var(--amber-soft); color: var(--amber); }
