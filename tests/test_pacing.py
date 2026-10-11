@@ -76,6 +76,13 @@ def test_pacing_and_retry_options():
     assert o["retries"] >= 5 and o["fragment_retries"] >= 5  # still resilient to network drops
 
 
+def test_retry_backoff_takes_the_attempt_as_n_like_yt_dlp_passes_it():
+    sleeps = dl.base_opts(None, None, None)["retry_sleep_functions"]
+    assert set(sleeps) == {"http", "fragment", "extractor"}
+    for kind, f in sleeps.items():
+        assert [f(n=n) for n in (0, 1, 3, 10)] == [1, 2, 8, 60], kind  # RetryManager calls sleep_func(n=…)
+
+
 def test_rate_limit_trips_the_breaker_and_blocks_all_youtube_calls(gate, fake):
     fake.behavior = DownloadError("ERROR: [youtube] x: HTTP Error 429: Too Many Requests")
     with pytest.raises(DownloadError):
@@ -196,3 +203,20 @@ def test_stop_during_the_pause_ends_the_batch_promptly():
     assert [e for e in events if isinstance(e, str)] == ["vid00000000"]
     assert sum(isinstance(e, (int, float)) for e in events) == 1  # one step, not the whole 10 s
     assert statuses[-1] == "Detenido."
+
+
+def test_no_pause_after_a_skipped_track_it_made_no_youtube_request():
+    import asyncio
+    events = []
+    m = QueueModel()
+    m.add_tracks([track(i) for i in range(3)])
+
+    async def sleep(seconds):
+        events.append(seconds)
+
+    # vid00000000 is already in the archive (skipped: None), the others download.
+    r = BatchRunner(m, lambda t, *a: events.append(t.id) or (None if t.id == "vid00000000" else f"/o/{t.id}.mp3"),
+                    out="/o", quality="192", fmt="audio", sleep=sleep, pace=(5, 5))
+    asyncio.run(r.run())
+    assert events[:2] == ["vid00000000", "vid00000001"]  # skipped → next one starts right away
+    assert events[2:] == [1] * 5 + ["vid00000002"]  # a done track is still followed by the pause

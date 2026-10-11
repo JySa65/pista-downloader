@@ -10,6 +10,9 @@ Output in dist/:
 
 ffmpeg/ffprobe are LGPL builds: BtbN `*-lgpl` archives on Windows/Linux (pinned + SHA256 below),
 compiled from pinned sources on macOS (build_ffmpeg_macos.sh).
+
+PO Tokens: the bgutil yt-dlp plugin ships as real files in yt-dlp-plugins/ and its generator (fetched by
+fetch_pot_server.py, needs network) in bgutil-server/. A failed fetch fails the build.
 """
 import argparse
 import datetime
@@ -96,7 +99,7 @@ def prepare_ffmpeg(out: Path) -> Path:
     return out
 
 
-def pyinstaller(ffmpeg_dir: Path) -> None:
+def pyinstaller(ffmpeg_dir: Path, pot_server: Path) -> None:
     import nicegui
 
     exe = ".exe" if target() == "windows" else ""
@@ -114,11 +117,12 @@ def pyinstaller(ffmpeg_dir: Path) -> None:
             "--add-binary", f"{ffmpeg_dir / ('ffprobe' + exe)}{sep}ffmpeg"]
     for lic in ffmpeg_dir.glob("LICENSE*"):
         args += ["--add-data", f"{lic}{sep}ffmpeg"]
-    args += deno_args(sep)
+    args += deno_args(sep) + pot_plugin_args(sep)
     if target() == "linux":
         args += ["--collect-submodules", "qtpy"]
     run(sys.executable, "-m", "PyInstaller", *args, "--distpath", DIST, "--workpath", BUILD / "pyinstaller",
         "--specpath", BUILD, ROOT / "main.py")
+    add_pot_server(pot_server)
 
 
 def build_info() -> Path:
@@ -143,6 +147,53 @@ def deno_args(sep: str) -> list[str]:
     shutil.copy(dist_info / "licenses" / "LICENSE", lic)
     return ["--add-binary", f"{binary}{sep}deno", "--add-data", f"{lic}{sep}deno",
             "--hidden-import", "yt_dlp_ejs", "--collect-all", "yt_dlp_ejs"]
+
+
+def pot_plugin_args(sep: str) -> list[str]:
+    """The bgutil PO Token plugin as real .py files: yt-dlp can't load plugins compiled into the archive.
+
+    Layout `yt-dlp-plugins/<package>/yt_dlp_plugins/...`, the folder Pista hands to yt-dlp (plugin_dirs).
+    """
+    import importlib.metadata
+
+    dist = importlib.metadata.distribution("bgutil-ytdlp-pot-provider")
+    out = BUILD / "yt-dlp-plugins"
+    shutil.rmtree(out, ignore_errors=True)
+    for f in dist.files or []:
+        if f.parts[0] == "yt_dlp_plugins" and f.suffix == ".py":
+            dest = out / "bgutil-ytdlp-pot-provider" / f
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(f.locate(), dest)
+    if not any(out.rglob("getpot_bgutil_script.py")):
+        sys.exit("bgutil-ytdlp-pot-provider plugin files not found: run `uv sync` first")
+    # The plugin imports yt-dlp's PO Token API, which nothing else may import statically.
+    return ["--add-data", f"{out}{sep}yt-dlp-plugins", "--collect-submodules", "yt_dlp.extractor.youtube.pot"]
+
+
+def add_pot_server(server: Path) -> None:
+    """Copy bgutil's generator next to the PyInstaller output, after it ran.
+
+    Not via --add-data: PyInstaller drops node_modules' package symlinks and hoists canvas' native libraries.
+    Links are kept (macOS .app/.dmg and AppImage preserve them); Windows gets real copies (Inno Setup
+    installs no links). VERSION is copied last, so a partial copy is never used.
+    """
+    if target() == "macos":
+        app = DIST / f"{NAME}.app"
+        dest = app / "Contents" / "Resources" / "bgutil-server"
+    else:
+        dest = DIST / NAME / "_internal" / "bgutil-server"  # PyInstaller's onedir contents dir (_MEIPASS)
+    shutil.rmtree(dest, ignore_errors=True)
+    dest.mkdir(parents=True)
+    for name in ("src", "node_modules", "package.json", "deno.json", "VERSION"):
+        if (server / name).is_dir():
+            shutil.copytree(server / name, dest / name, symlinks=target() != "windows")
+        else:
+            shutil.copy2(server / name, dest / name)
+    if target() == "macos":
+        # _MEIPASS is Contents/Frameworks; link it like PyInstaller links its own data, then reseal the
+        # bundle's ad-hoc signature over the new resources.
+        (app / "Contents" / "Frameworks" / "bgutil-server").symlink_to("../Resources/bgutil-server")
+        run("codesign", "--force", "--sign", "-", app)
 
 
 def package_macos(v: str) -> Path:
@@ -216,7 +267,10 @@ def main() -> None:
         print(f"tag {a.check_tag} matches version {v}")
         return
     BUILD.mkdir(exist_ok=True)
-    pyinstaller(prepare_ffmpeg(a.ffmpeg_dir))
+    import fetch_pot_server  # next to this script
+
+    pot_server = fetch_pot_server.main()  # first: a release without PO tokens must not ship silently
+    pyinstaller(prepare_ffmpeg(a.ffmpeg_dir), pot_server)
     if not a.skip_package:
         out = {"macos": package_macos, "windows": package_windows, "linux": package_linux}[target()](v)
         print("built", out)

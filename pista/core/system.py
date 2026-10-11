@@ -91,10 +91,11 @@ def find_deno() -> str | None:
 
 
 def pot_server_dir(search_dirs: list[Path]) -> Path | None:
-    """First `<dir>/bgutil-server` holding the PO Token generator script, or None."""
+    """First complete `<dir>/bgutil-server` (generator script + VERSION, written last by the fetch), or None."""
     for d in search_dirs:
-        if (d / "bgutil-server" / "src" / "generate_once.ts").is_file():
-            return d / "bgutil-server"
+        s = d / "bgutil-server"
+        if (s / "src" / "generate_once.ts").is_file() and (s / "VERSION").is_file():
+            return s
     return None
 
 
@@ -104,6 +105,14 @@ def find_pot_server() -> Path | None:
     (fetched by packaging/fetch_pot_server.py). Without it yt-dlp just requests no PO token."""
     dirs = bundled_dirs(getattr(sys, "frozen", False), getattr(sys, "_MEIPASS", None), sys.executable)
     return pot_server_dir([*dirs, Path(__file__).resolve().parents[2] / "vendor"])
+
+
+@cache
+def find_plugin_dir() -> Path | None:
+    """yt-dlp plugins bundled in a build (`<dir>/<package>/yt_dlp_plugins/...`); None from source,
+    where yt-dlp finds the installed plugin on sys.path by itself."""
+    dirs = bundled_dirs(getattr(sys, "frozen", False), getattr(sys, "_MEIPASS", None), sys.executable)
+    return next((d / "yt-dlp-plugins" for d in dirs if (d / "yt-dlp-plugins").is_dir()), None)
 
 
 def open_command(platform: str, target: str) -> list[str] | None:

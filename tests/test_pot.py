@@ -12,6 +12,7 @@ def _server(root):
     s = root / "bgutil-server"
     (s / "src").mkdir(parents=True)
     (s / "src" / "generate_once.ts").write_text("")
+    (s / "VERSION").write_text("2.0.2\n")  # written last by fetch_pot_server.py: the fetch completed
     return s
 
 
@@ -49,3 +50,33 @@ def test_logger_keeps_other_messages_at_their_level(caplog):
     caplog.set_level(logging.DEBUG, logger="pista.yt_dlp")
     _Logger().warning("[pot:bgutil:http] Error reaching GET /ping. Please make sure that the server is reachable")
     assert [r.levelno for r in caplog.records] == [logging.WARNING]
+
+
+def test_half_fetched_pot_server_without_version_is_ignored(tmp_path):
+    half, done = tmp_path / "a", tmp_path / "b"
+    (_server(half) / "VERSION").unlink()  # fetch stopped before install/prune finished
+    server = _server(done)
+    assert pot_server_dir([half]) is None
+    assert pot_server_dir([half, done]) == server
+
+
+def test_failed_refetch_deactivates_the_old_server(tmp_path, monkeypatch):
+    import importlib.util
+    from pathlib import Path
+
+    import pytest
+    path = Path(__file__).resolve().parents[1] / "packaging" / "fetch_pot_server.py"
+    spec = importlib.util.spec_from_file_location("fetch_pot_server", path)
+    fetch = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fetch)
+    old = _server(tmp_path)
+    (old / "VERSION").write_text("0.0.1\n")  # an older plugin's server: must be refetched
+    monkeypatch.setattr(fetch, "DEST", old)
+    monkeypatch.setattr(fetch, "find_deno", lambda: "/d/deno")
+
+    def offline(*a, **k):
+        raise OSError("offline")
+    monkeypatch.setattr(fetch.urllib.request, "urlopen", offline)
+    with pytest.raises(OSError):
+        fetch.main()
+    assert pot_server_dir([tmp_path]) is None

@@ -4,6 +4,7 @@
 
 The version is the installed bgutil-ytdlp-pot-provider plugin's (pinned in uv.lock), so plugin and
 generator always match. Skips the work when vendor/bgutil-server/VERSION already says that version.
+VERSION is written last: Pista ignores a folder without it (a fetch that stopped halfway).
 """
 import importlib.metadata
 import io
@@ -31,8 +32,12 @@ def _only_server(member: tarfile.TarInfo, dest: str) -> tarfile.TarInfo | None:
     return tarfile.data_filter(member.replace(name=parts[2], deep=False), dest)
 
 
+def _is_link(p: Path) -> bool:
+    return p.is_symlink() or p.is_junction()  # deno may link packages with junctions on Windows
+
+
 def _remove(p: Path) -> None:
-    if p.is_symlink() or p.is_file():
+    if _is_link(p) or p.is_file():
         p.unlink()
     elif p.is_dir():
         shutil.rmtree(p)
@@ -45,8 +50,8 @@ def _links(modules: Path) -> list[Path]:
     found = []
     for p in modules.iterdir():
         if p.name.startswith("@") and p.is_dir() and not p.is_symlink():
-            found += [q for q in p.iterdir() if q.is_symlink()]
-        elif p.is_symlink():
+            found += [q for q in p.iterdir() if _is_link(q)]
+        elif _is_link(p):
             found.append(p)
     return found
 
@@ -70,22 +75,23 @@ def prune_dev_packages(server: Path) -> None:
     for d in store.iterdir():
         if d.is_dir() and "@" in d.name.lstrip("@") and d.name not in keep:
             shutil.rmtree(d)
-    for link in [p for p in nm.rglob("*") if p.is_symlink() and not p.exists()]:
+    for link in [p for p in nm.rglob("*") if _is_link(p) and not p.exists()]:
         link.unlink()  # dangling: pointed into a pruned package (top-level devDependencies, .bin/tsc, …)
     for scope in nm.glob("@*"):
         if scope.is_dir() and not any(scope.iterdir()):
             scope.rmdir()
 
 
-def main() -> None:
+def main() -> Path:
     ver = importlib.metadata.version("bgutil-ytdlp-pot-provider")
     stamp = DEST / "VERSION"
     if stamp.is_file() and stamp.read_text().strip() == ver:
         print(f"bgutil server {ver} already in {DEST.relative_to(ROOT)}")
-        return
+        return DEST
     deno = find_deno()
     if not deno:
         sys.exit("deno not found: run `uv sync` first (the yt-dlp[deno] extra installs it)")
+    stamp.unlink(missing_ok=True)  # first: if anything below fails, the old/partial folder stays inactive
     _remove(DEST)
     DEST.mkdir(parents=True)
     print(f"downloading bgutil server {ver}…")
@@ -98,6 +104,7 @@ def main() -> None:
     prune_dev_packages(DEST)
     stamp.write_text(ver + "\n")
     print(f"bgutil server {ver} ready in {DEST.relative_to(ROOT)}")
+    return DEST
 
 
 if __name__ == "__main__":

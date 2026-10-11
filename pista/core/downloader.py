@@ -6,6 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import yt_dlp
+from yt_dlp.globals import plugin_dirs
 from yt_dlp.postprocessor.common import PostProcessor
 from yt_dlp.postprocessor.ffmpeg import FFmpegPostProcessor
 from yt_dlp.utils import DownloadCancelled, download_range_func, sanitize_filename
@@ -17,12 +18,17 @@ from .breaker import GATE
 from .models import Track
 from .plan import video_sizes
 from .progress import phase_for_postprocessor
-from .system import find_deno, find_ffmpeg, find_pot_server
+from .system import find_deno, find_ffmpeg, find_plugin_dir, find_pot_server
 from .urls import is_youtube, video_id, video_url
 
 Cancelled = DownloadCancelled  # raised by download() when cancel_event is set
 
 log = logging.getLogger("pista.yt_dlp")
+
+if _plugins := find_plugin_dir():
+    # Frozen build: yt-dlp can't load plugins compiled into the PyInstaller archive, so it gets the
+    # bundled folder explicitly (and only it). Must be set before the first YoutubeDL loads plugins.
+    plugin_dirs.value = [str(_plugins)]
 
 # Only YouTube extractors: yt-dlp's generic extractor would otherwise read metadata from any web page.
 ALLOWED_EXTRACTORS = ["youtube", "youtube:tab", "youtube:playlist", "youtubeytbe"]
@@ -73,8 +79,8 @@ class _Logger:
         log.error(msg)
 
 
-def _retry_sleep(attempt: int) -> float:
-    return min(60.0, 2.0 ** attempt)
+def _retry_sleep(n: int) -> float:  # yt-dlp calls sleep_func(n=<retry number, from 0>)
+    return min(60.0, 2.0 ** n)
 
 
 _cookie_browser: str | None = None  # set from the UI option; None = don't use browser cookies

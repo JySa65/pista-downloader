@@ -101,7 +101,8 @@ Pista anota lo que ya descargó en `.downloaded-audio.txt` y `.downloaded-video.
 
 ```sh
 uv sync
-uv run python packaging/fetch_pot_server.py   # una vez: generador de PO Tokens (bgutil) en vendor/
+uv run python packaging/fetch_pot_server.py   # generador de PO Tokens (bgutil) en vendor/; repítelo tras subir
+                                              # el plugin bgutil (no hace nada si ya está al día)
 uv run main.py        # ventana nativa (o --browser)
 uv run pytest -q
 ```

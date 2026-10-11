@@ -29,7 +29,7 @@ provider plugin (https://github.com/yt-dlp/yt-dlp/wiki/Extractors, PO-Token-Guid
         token is generated in a real yt-dlp run (log shows bgutil:script provider). Route: delegated.
   - [x] T2b Integrate in dev env: dependency pinned in pyproject/uv.lock, server fetched by a script,
         extractor_args server_home in base_opts only when the server is present; tests.
-  - [ ] T2c Packaging: build.py ships yt-dlp-plugins/ + server (src + node_modules) per OS; CI.
+  - [x] T2c Packaging: build.py ships yt-dlp-plugins/ + server (src + node_modules) per OS; CI.
         Plus review follow-ups: no pause after skipped tracks; VERSION-gated server; README note.
   - [x] T2d Auto-update: extend .github/workflows/update-yt-dlp.yml to bump bgutil (plugin + server).
   - Findings: pip wheel is only the Python plugin; token generator (server/src + node_modules with
@@ -60,6 +60,13 @@ provider plugin (https://github.com/yt-dlp/yt-dlp/wiki/Extractors, PO-Token-Guid
   re-run fetch after plugin bumps (R2). Noted, not fixed: tag archive has no integrity pin (R1).
 - Separate uncommitted fixes (retry dialog slot, cookie permission message): RDD medium, consent
   granted, approved, acknowledged. Not committed (user has not asked).
+- T2c done (macOS verified; Windows/Linux pending CI): server copied after PyInstaller (symlinks kept,
+  ad-hoc re-sign), plugins as real files + yt_dlp.globals.plugin_dirs when frozen; VERSION-gated
+  server; no pause after skipped tracks. Also fixed pre-existing bug: yt-dlp calls retry sleep
+  functions as sleep_func(n=...) → _retry_sleep(attempt) raised TypeError on every retry.
+  GREEN: pytest -q 297 passed; build.py --skip-package OK; codesign verify OK; frozen app retrieved
+  a gvs PO token (bgutil:script-deno). .app 304M (server 88M). First packaging writer died on auth
+  error; RDD for its partial diff declined by user (candidate-scoped).
 
 ## Next step
-T2c packaging (macOS local build + CI on Windows/Linux).
+Verify Windows/Linux builds in CI (needs user OK to push the branch).

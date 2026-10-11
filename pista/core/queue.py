@@ -368,6 +368,8 @@ class BatchRunner:
                 size = Path(path).stat().st_size if path and Path(path).exists() else 0
                 if t.id not in m.state:  # removed right as it finished
                     continue
+                if not path:
+                    self._pace_due = False  # archive skip: no YouTube request, so nothing to pace
                 self.results[t.id] = Result(t.title, "done" if path else "skipped", path, size)
                 m.mark_done(t.id, self.fmt, path, size)
                 self.log(f"✓ {path} ({human_size(size)})" if path else f"= {t.title} — ya estaba, se omite",
