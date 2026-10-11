@@ -4,6 +4,10 @@
 
 Only the [latest release](https://github.com/JySa65/pista-downloader/releases/latest) gets security fixes. Please update before reporting.
 
+## Verifying downloads
+
+Release installers come with `SHA256SUMS.txt` and a signed build-provenance attestation produced by the release workflow. Verify with `sha256sum -c SHA256SUMS.txt --ignore-missing` and `gh attestation verify <file> --repo JySa65/pista-downloader`.
+
 ## Reporting a vulnerability
 
 Please **do not** open a public issue for security problems.

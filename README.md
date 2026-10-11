@@ -43,6 +43,15 @@ Descarga el instalador de tu sistema desde **[Releases](https://github.com/JySa6
 | **macOS** (Apple Silicon) | `Pista-<versión>-macos-arm64.dmg` | Abre el .dmg y arrastra **Pista** a *Aplicaciones*. La app no está firmada: la primera vez, **clic derecho → Abrir → Abrir** (o *Ajustes del Sistema → Privacidad y seguridad → Abrir igualmente*). |
 | **Linux** (x86_64, glibc 2.35+) | `Pista-<versión>-x86_64.AppImage` | `chmod +x Pista-*.AppImage` y ejecútalo. Necesita un escritorio X11/Wayland con las bibliotecas habituales (`libnss3`, `libxkbcommon-x11-0`, `libxcb-cursor0`). Si no arranca, instala `libfuse2` o ejecútalo con `--appimage-extract-and-run`. |
 
+**Verificar la descarga (opcional).** Cada versión publica `SHA256SUMS.txt` y una atestación de procedencia firmada por GitHub Actions:
+
+```sh
+sha256sum -c SHA256SUMS.txt --ignore-missing          # Linux (macOS: shasum -a 256 -c …)
+gh attestation verify Pista-Setup-<versión>.exe --repo JySa65/pista-downloader
+```
+
+En Windows (PowerShell): `Get-FileHash Pista-Setup-<versión>.exe` y compara con la línea de `SHA256SUMS.txt`.
+
 > **¿Venías de «YouTube → MP3» (v0.2.x)?** Pista es la misma app con otro nombre. En Windows el instalador reemplaza la versión anterior. En macOS, borra la app antigua «YouTubeDownload». Tus descargas no se tocan, y el registro y la caché pasan solos a la carpeta nueva.
 
 ## Uso rápido
