@@ -15,8 +15,10 @@ from youtube_download import version
 from youtube_download.core.applog import setup_logging
 from youtube_download.core.batch import MAX_ATTEMPTS, Result, human_size, human_time, short_error, summarize
 from youtube_download.core.downloader import Cancelled, download, list_tracks
+from yt_dlp.version import __version__ as yt_dlp_version
+
 from youtube_download.core.system import (
-    default_outdir, has_ffmpeg, log_dir, open_path, read_clipboard, reveal_label, reveal_path,
+    default_outdir, find_deno, find_ffmpeg, has_ffmpeg, log_dir, open_path, read_clipboard, reveal_label, reveal_path,
 )
 from youtube_download.core.urls import classify
 
@@ -59,6 +61,7 @@ def safely(action, what: str) -> None:
 def index() -> None:
     theme.apply()
     log_path = setup_logging(log_dir())
+    logger.info("v%s · yt-dlp %s · ffmpeg=%s · deno=%s", version(), yt_dlp_version, find_ffmpeg(), find_deno())
     dark = False
     links: list[str] = []
     fmt, quality = "audio", "192"
