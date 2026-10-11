@@ -1,0 +1,65 @@
+"""Per-item download results and the end-of-batch summary."""
+import re
+from dataclasses import dataclass, field
+
+
+@dataclass
+class Result:
+    title: str
+    state: str  # done | skipped | error | stopped
+    path: str | None = None
+    size: int = 0
+    error: str = ""
+
+
+@dataclass
+class Summary:
+    done: int
+    skipped: int
+    failed: int
+    stopped: int
+    total_bytes: int
+    elapsed: float
+    failures: list[tuple[str, str]] = field(default_factory=list)  # (title, short reason)
+    first_new: str | None = None  # first newly downloaded file, for "Ir al reproductor"
+
+
+def short_error(msg: str, limit: int = 120) -> str:
+    """One readable line from a yt-dlp error: no 'ERROR:' / '[extractor] id:' prefixes."""
+    line = (msg or "").strip().splitlines()[0] if (msg or "").strip() else ""
+    line = re.sub(r"^(ERROR:\s*)?(\[[\w:]+\]\s*[\w-]+:\s*)?", "", line).strip()
+    if not line:
+        return "Error desconocido"
+    return line if len(line) <= limit else line[: limit - 1] + "…"
+
+
+def summarize(results: list[Result], elapsed: float) -> Summary:
+    count = lambda state: sum(r.state == state for r in results)  # noqa: E731
+    return Summary(
+        done=count("done"),
+        skipped=count("skipped"),
+        failed=count("error"),
+        stopped=count("stopped"),
+        total_bytes=sum(r.size for r in results if r.state == "done"),
+        elapsed=elapsed,
+        failures=[(r.title, short_error(r.error)) for r in results if r.state == "error"],
+        first_new=next((r.path for r in results if r.state == "done" and r.path), None),
+    )
+
+
+def human_size(n: int) -> str:
+    size = float(n)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} GB"
+
+
+def human_time(seconds: float) -> str:
+    s = int(seconds)
+    if s < 60:
+        return f"{s} s"
+    if s < 3600:
+        return f"{s // 60} min {s % 60} s"
+    return f"{s // 3600} h {s % 3600 // 60} min"

@@ -1,5 +1,7 @@
 """NiceGUI desktop app with two tabs: Descargar and Reproductor."""
+import asyncio
 import importlib.util
+import logging
 import os
 import re
 import sys
@@ -11,12 +13,14 @@ from nicegui import app, native, run, ui
 
 from youtube_download import version
 
+from youtube_download.core.applog import setup_logging
+from youtube_download.core.batch import Result, human_size, human_time, short_error, summarize
 from youtube_download.core.downloader import Cancelled, download, list_tracks
-from youtube_download.core.system import default_outdir, has_ffmpeg, read_clipboard
+from youtube_download.core.system import default_outdir, has_ffmpeg, log_dir, open_path, read_clipboard
 from youtube_download.core.urls import classify
 
 from . import theme
-from .components import Queue, ask_mix, button
+from .components import Queue, ask_mix, button, summary_dialog
 from .player import Player
 
 QUALITIES = {"audio": ["128", "160", "192", "256", "320"], "video": ["360p", "480p", "720p", "1080p", "4K"]}
@@ -25,6 +29,8 @@ FFMPEG_MISSING = ("No se encontró ffmpeg. Instálalo para descargar (macOS: bre
                   "Windows: winget install ffmpeg · Linux: sudo apt install ffmpeg).")
 FORMATS = {"audio": "Audio · MP3", "video": "Video · MP4"}
 TAGS = {"video": "Video", "playlist": "Playlist", "mix": "Mix"}
+RETRY_DELAY = 10  # seconds before the automatic second attempt of failed items
+logger = logging.getLogger("youtube_download")
 
 
 async def pick_folder(start: str) -> str | None:
@@ -44,6 +50,7 @@ async def pick_folder(start: str) -> str | None:
 @ui.page("/")
 def index() -> None:
     theme.apply()
+    log_path = setup_logging(log_dir())
     dark = False
     links: list[str] = []
     fmt, quality = "audio", "192"
@@ -52,7 +59,8 @@ def index() -> None:
     progress: dict = {"track": None, "pct": 0.0}
     cancel = threading.Event()
 
-    def log(msg: str) -> None:
+    def log(msg: str, level: int = logging.INFO) -> None:
+        logger.log(level, msg)  # full line goes to the log file
         log_view.push(f"[{time.strftime('%H:%M:%S')}] {msg}")
 
     @ui.refreshable
@@ -144,6 +152,7 @@ def index() -> None:
                 with ui.row().classes("w-full justify-between items-center"):
                     ui.label("Registro").classes("yt-label")
                     with ui.row().classes("gap-1"):
+                        button("Abrir registro", "yt-link", lambda: open_log()).props(f'title="{log_path}"')
                         expand_btn = button("Ampliar", "yt-link", lambda: toggle_log())
                 log_view = ui.log(max_lines=1000).classes("yt-log w-full h-32 shrink-0")
 
@@ -155,8 +164,11 @@ def index() -> None:
                 with ui.row().classes("gap-1"):
                     button("Todas", "yt-link", lambda: queue.select_all(True))
                     button("Ninguna", "yt-link", lambda: queue.select_all(False))
+                    button("Limpiar cola", "yt-link", lambda: clear_queue()).props(
+                        'title="Quita las terminadas, fallidas y no seleccionadas"')
             with ui.column().classes("flex-1 min-h-0 overflow-auto px-4 gap-0 w-full no-wrap"):
                 queue = Queue(on_change=lambda: update_counter())
+                queue.on_retry = lambda track_id: retry([track_id])
             with ui.row().classes("yt-panel yt-line-t w-full items-center gap-4 px-6 py-3.5 no-wrap shrink-0"):
                 with ui.column().classes("flex-1 min-w-0 gap-1.5"):
                     with ui.row().classes("w-full justify-between text-xs yt-muted"):
@@ -182,6 +194,12 @@ def index() -> None:
         tab_pl.classes(replace="" if is_dl else "on")
         if not is_dl:
             player.reload()
+
+    def open_log() -> None:
+        try:
+            open_path(log_path)
+        except OSError as e:
+            ui.notify(f"No se pudo abrir el registro: {e}", type="warning")
 
     def toggle_log() -> None:
         tall = "h-80" in log_view.classes
@@ -271,7 +289,7 @@ def index() -> None:
     def set_busy(value: bool) -> None:
         nonlocal busy
         busy = value
-        for b in (dl_btn, load_btn):
+        for b in (dl_btn,):  # "Cargar" stays enabled: new tracks join the running batch
             if value:
                 b.props("disabled")
             else:
@@ -287,7 +305,8 @@ def index() -> None:
             ui.notify("Añade al menos una URL (http/https).", type="warning")
             return
         load_btn.props("disabled")
-        status.text = "Cargando…"
+        if not busy:
+            status.text = "Cargando…"
         limit = int(mix_limit.value)
         found, seen = [], set()
         try:
@@ -300,7 +319,7 @@ def index() -> None:
                 try:
                     result = await run.io_bound(list_tracks, url, kind, limit) or []
                 except Exception as e:
-                    log(f"❌ {url}: {e}")
+                    log(f"❌ {url}: {e}", logging.ERROR)
                     continue
                 log(f"→ {len(result)} pista(s) cargada(s) ({TAGS[kind]}).")
                 for t in result:
@@ -309,13 +328,30 @@ def index() -> None:
                         found.append(t)
         finally:
             load_btn.props(remove="disabled")
-        queue.set_tracks(found)
-        total_label.text, status.text = "0%", f"Cargadas {len(found)} pista(s)."
-        total_fill.style("width: 0%")
+        added = queue.add_tracks(found)
+        log(f"Añadidas {added} pista(s) a la cola" + (" (se descargarán en este lote)." if busy else "."))
+        if not busy:
+            status.text = f"{len(queue.tracks)} pista(s) en la cola."
+            set_total()
+
+    def clear_queue() -> None:
+        removed = queue.clear_finished(keep=progress["track"])
+        log(f"Cola: {removed} pista(s) quitadas.")
+        set_total()
+
+    def retry(track_ids: list[str]) -> None:
+        for tid in track_ids:
+            if tid in queue.state:
+                queue.checked[tid] = True
+                queue.set_state(tid, "queued")
+        queue.on_change()
+        if not busy:
+            asyncio.create_task(start_download())  # otherwise the running batch picks them up
 
     async def start_download() -> None:
-        selected = queue.selected()
-        if not selected:
+        if busy:
+            return
+        if not queue.selected():
             ui.notify("No hay pistas seleccionadas.", type="warning")
             return
         if not has_ffmpeg():
@@ -326,43 +362,87 @@ def index() -> None:
             return
         out = str(Path(outdir.value.strip()).expanduser())
         cancel.clear()
-        for t in selected:
-            queue.set_state(t.id, "queued")
+        for t in queue.selected():  # re-run anything selected that isn't finished
+            if queue.state[t.id][0] in ("stopped", "error"):
+                queue.set_state(t.id, "queued")
         set_busy(True)
-        log(f"Iniciando {len(selected)} descargas…")
+        started = time.monotonic()
+        results: dict[str, Result] = {}
+        attempts: dict[str, int] = {}
+        log(f"Iniciando descargas · {format_text()} · {out}")
 
-        for i, t in enumerate(selected, start=1):
-            if cancel.is_set():
-                break
-            status.text = f"Descargando {i} de {len(selected)} · {format_text()}"
-            progress.update(track=t.id, pct=0.0)
+        async def run_pending() -> None:
+            while not cancel.is_set() and (t := queue.next_pending()) is not None:
+                attempts[t.id] = attempts.get(t.id, 0) + 1
+                done = sum(r.state != "error" for r in results.values())
+                pending = sum(1 for x in queue.selected() if queue.state[x.id][0] == "queued")
+                status.text = f"Descargando {done + 1} de {done + pending} · {format_text()}"
+                log(f"↓ {t.title} (intento {attempts[t.id]})")
+                progress.update(track=t.id, pct=0.0)
 
-            def on_progress(pct: float, _msg: str) -> None:
-                progress["pct"] = min(pct, 99.0)
+                def on_progress(pct: float, _msg: str) -> None:
+                    progress["pct"] = min(pct, 99.0)
 
-            try:
-                path = await run.io_bound(download, t, out, quality, t.playlist, on_progress, cancel, fmt)
-                progress["track"] = None
-                queue.set_state(t.id, "done" if path else "skipped")
-                log(f"✅ {path}" if path else f"↷ Ya descargada: {t.title}")
-            except Cancelled:
-                progress["track"] = None
-                queue.set_state(t.id, "stopped")
-                break
-            except Exception as e:
-                progress["track"] = None
-                queue.set_state(t.id, "error")
-                log(f"❌ {t.title}: {e}")
-            set_total()
+                try:
+                    path = await run.io_bound(download, t, out, quality, t.playlist, on_progress, cancel, fmt)
+                    size = Path(path).stat().st_size if path and Path(path).exists() else 0
+                    results[t.id] = Result(t.title, "done" if path else "skipped", path, size)
+                    queue.set_state(t.id, "done" if path else "skipped")
+                    log(f"✅ {path}" if path else f"↷ Ya descargada: {t.title}")
+                except Cancelled:
+                    results[t.id] = Result(t.title, "stopped")
+                    queue.set_state(t.id, "stopped")
+                except Exception as e:
+                    results[t.id] = Result(t.title, "error", error=str(e))
+                    queue.errors[t.id] = short_error(str(e))
+                    queue.set_state(t.id, "error")
+                    log(f"❌ {t.title} (intento {attempts[t.id]}): {e}", logging.ERROR)
+                finally:
+                    progress["track"] = None
+                set_total()
 
-        progress["track"] = None
+        await run_pending()
+        # One automatic second pass for items that failed only once.
+        again = [tid for tid, r in results.items() if r.state == "error" and attempts[tid] == 1]
+        if again and not cancel.is_set():
+            log(f"Reintentando {len(again)} pista(s) fallida(s) en {RETRY_DELAY} s…", logging.WARNING)
+            status.text = f"Reintentando {len(again)} fallida(s) en {RETRY_DELAY} s…"
+            for _ in range(RETRY_DELAY * 10):
+                if cancel.is_set():
+                    break
+                await asyncio.sleep(0.1)
+            if not cancel.is_set():
+                for tid in again:
+                    queue.set_state(tid, "queued")
+                await run_pending()
+
         stopped = cancel.is_set()
         if stopped:
             log("Detenido.")
         status.text = "Detenido." if stopped else "Descarga finalizada."
         set_total()
         set_busy(False)
+        summary = summarize(list(results.values()), time.monotonic() - started)
+        log(f"Resumen: {summary.done} descargadas, {summary.skipped} ya estaban, {summary.failed} fallidas, "
+            f"{summary.stopped} detenidas · {human_size(summary.total_bytes)} · {human_time(summary.elapsed)}")
+        failed_ids = [tid for tid, r in results.items() if r.state == "error"]
+        summary_dialog(
+            summary, out,
+            go_player=lambda: go_to_player(summary.first_new),
+            open_folder=lambda: open_folder(out),
+            retry_failed=(lambda: retry(failed_ids)) if failed_ids else None,
+        )
 
+    def go_to_player(first_new: str | None) -> None:
+        show_tab("player")
+        if first_new:
+            player.play_path(Path(first_new))
+
+    def open_folder(path: str) -> None:
+        try:
+            open_path(path)
+        except OSError as e:
+            ui.notify(f"No se pudo abrir la carpeta: {e}", type="warning")
 
 def native_available() -> bool:
     if importlib.util.find_spec("webview") is None:

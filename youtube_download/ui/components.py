@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 from nicegui import app, run, ui
 
+from youtube_download.core.batch import Summary, human_size, human_time
 from youtube_download.core.downloader import preview_clip
 from youtube_download.core.models import Track
 from youtube_download.core.system import user_cache_dir
@@ -95,6 +96,39 @@ def open_preview(track: Track) -> None:
     dialog.open()
 
 
+def summary_dialog(summary: Summary, folder: str, go_player: Callable[[], None],
+                   open_folder: Callable[[], None], retry_failed: Callable[[], None] | None) -> None:
+    """End-of-batch summary (after the automatic retry pass)."""
+    with ui.dialog() as dialog, ui.card().classes("yt-modal yt-summary w-[520px] max-h-[90vh] overflow-auto p-[22px] gap-[14px]"):
+        ui.label("Descarga finalizada").classes("text-[15px] font-semibold")
+        with ui.element("div").classes("grid grid-cols-4 gap-2 w-full"):
+            for label, n, cls in (("Descargadas", summary.done, "ok"), ("Ya estaban", summary.skipped, ""),
+                                  ("Fallidas", summary.failed, "err" if summary.failed else ""),
+                                  ("Detenidas", summary.stopped, "")):
+                with ui.column().classes("yt-box p-2.5 gap-0 items-start"):
+                    ui.label(str(n)).classes(f"yt-stat {cls} text-xl font-semibold mono")
+                    ui.label(label).classes("text-[11px] yt-muted")
+        ui.label(f"{human_size(summary.total_bytes)} · {human_time(summary.elapsed)}").classes("text-[13px] yt-muted")
+        ui.label(folder).classes("mono text-xs yt-text2 break-all")
+        if summary.failures:
+            ui.label("Fallidas").classes("yt-label")
+            with ui.column().classes("yt-box w-full p-2 gap-1 max-h-40 overflow-auto no-wrap"):
+                for title, reason in summary.failures:
+                    with ui.column().classes("gap-0 w-full"):
+                        ui.label(title).classes("text-[13px] font-medium truncate w-full")
+                        ui.label(reason).classes("text-xs yt-error")
+        with ui.row().classes("w-full justify-end gap-2 mt-1"):
+            button("Cerrar", "yt-btn", dialog.close)
+            if retry_failed:
+                button("Reintentar fallidas", "yt-btn", lambda: (dialog.close(), retry_failed()))
+            button("Abrir carpeta", "yt-btn", open_folder)
+            go = button("Ir al reproductor", "yt-primary", lambda: (dialog.close(), go_player()))
+            if not summary.first_new:
+                go.props('title="No hay archivos nuevos; se abre la biblioteca"')
+    dialog.on("hide", dialog.delete)
+    dialog.open()
+
+
 STATES = {  # state -> (pill class, fill class, label)
     "queued": ("", "", "En cola"),
     "running": ("run", "", None),  # label is the percentage
@@ -125,6 +159,34 @@ class Queue:
         self.state = {t.id: ("queued", 0.0) for t in tracks}
         self.render.refresh()
         self.on_change()
+
+    def add_tracks(self, tracks: list[Track]) -> int:
+        """Append new tracks (deduplicated by video id), checked and queued; returns how many were added."""
+        new = [t for t in dict((t.id, t) for t in tracks).values() if t.id not in self.state]
+        self.tracks += new
+        for t in new:
+            self.checked[t.id] = True
+            self.state[t.id] = ("queued", 0.0)
+        if new:
+            self.render.refresh()
+            self.on_change()
+        return len(new)
+
+    def next_pending(self) -> Track | None:
+        """Next checked, queued track; re-read each time so tracks added mid-download are picked up."""
+        return next((t for t in self.tracks if self.checked.get(t.id) and self.state[t.id][0] == "queued"), None)
+
+    def clear_finished(self, keep: str | None) -> int:
+        """Drop finished, failed, stopped and unchecked rows; never the one downloading (`keep`)."""
+        drop = {t.id for t in self.tracks if t.id != keep and (
+            not self.checked.get(t.id) or self.state[t.id][0] in ("done", "skipped", "error", "stopped"))}
+        self.tracks = [t for t in self.tracks if t.id not in drop]
+        for d in (self.checked, self.state, self.errors):
+            for k in drop:
+                d.pop(k, None)
+        self.render.refresh()
+        self.on_change()
+        return len(drop)
 
     def select_all(self, value: bool) -> None:
         self.checked = {t.id: value for t in self.tracks}

@@ -159,6 +159,17 @@ class Player:
         self.set_volume()
         self.render.refresh()
 
+    def play_path(self, path: Path) -> None:
+        """Show the library containing `path` and play it (used after a download batch)."""
+        self.reload()
+        try:
+            path.relative_to(self.root())
+        except ValueError:
+            self.set_folder(str(path.parent))
+        resolved = [f.resolve() for f in self.files]
+        if path.resolve() in resolved:
+            self.play(resolved.index(path.resolve()))
+
     def step(self, d: int) -> None:
         if not self.files:
             return

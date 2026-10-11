@@ -45,7 +45,8 @@ class _Logger:
     """Routes yt-dlp output to the app log (the file keeps warnings/errors yt-dlp would print)."""
 
     def debug(self, msg: str) -> None:
-        log.debug(msg)
+        # With quiet=True yt-dlp sends its normal screen output here too; keep it (it explains 403s etc.).
+        (log.debug if msg.startswith("[debug] ") else log.info)(msg)
 
     def info(self, msg: str) -> None:
         log.info(msg)
