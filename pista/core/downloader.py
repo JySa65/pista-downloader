@@ -1,6 +1,7 @@
 """yt-dlp wrapper: list tracks without downloading, download one track as MP3/MP4."""
 import logging
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -153,6 +154,7 @@ def download(
             on_progress(95.0, "Procesando…")
 
     target = target_dir(outdir, subfolder)
+    repair_archive(Path(outdir) / ARCHIVES[fmt])
     opts = {
         **format_opts(fmt, quality),
         "noplaylist": True,
@@ -167,6 +169,33 @@ def download(
         return None  # skipped: already in download archive
     on_progress(100.0, "Listo")
     return downloads[0]["filepath"]
+
+
+def repair_archive(archive: Path) -> Path | None:
+    """If the download archive isn't valid UTF-8, keep a backup and rewrite it with its readable lines.
+
+    yt-dlp fails to start with a corrupt archive, which would make every download fail.
+    Returns the backup path, or None if nothing had to be done.
+    """
+    try:
+        data = archive.read_bytes()
+    except OSError:
+        return None
+    try:
+        data.decode("utf-8")
+        return None
+    except UnicodeDecodeError:
+        pass
+    lines = [ln for ln in data.decode("utf-8", errors="replace").splitlines()
+             if len(ln.split()) == 2 and "\ufffd" not in ln and "\x00" not in ln]
+    backup = archive.with_name(f"{archive.name}.corrupt-{int(time.time())}")
+    try:
+        archive.replace(backup)
+        archive.write_text("".join(f"{ln}\n" for ln in lines), "utf-8")
+    except OSError:
+        return None
+    log.warning("Registro de descargas dañado: copia en %s, %d entradas recuperadas", backup, len(lines))
+    return backup
 
 
 def target_dir(outdir: str | Path, subfolder: str) -> Path:
