@@ -5,6 +5,23 @@ description = "Desktop app to download YouTube videos, playlists and Mixes as MP
 readme = "README.md"
 license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
+authors = [{ name = "jysa65" }]
+keywords = ["downloader", "mp3", "mp4", "yt-dlp", "nicegui", "music-player", "desktop"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: X11 Applications :: Qt",
+    "Environment :: Win32 (MS Windows)",
+    "Environment :: MacOS X",
+    "Intended Audience :: End Users/Desktop",
+    "Natural Language :: Spanish",
+    "Operating System :: Microsoft :: Windows :: Windows 10",
+    "Operating System :: Microsoft :: Windows :: Windows 11",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Multimedia :: Sound/Audio",
+    "Topic :: Multimedia :: Video",
+]
 requires-python = ">=3.14"
 dependencies = [
     "nicegui[native]>=3.18.0",
@@ -23,3 +40,10 @@ dev = [
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+
+[project.urls]
+Homepage = "https://github.com/JySa65/pista-downloader"
+Repository = "https://github.com/JySa65/pista-downloader"
+Issues = "https://github.com/JySa65/pista-downloader/issues"
+Releases = "https://github.com/JySa65/pista-downloader/releases"
+Author = "https://jysa65.dev/es/"
