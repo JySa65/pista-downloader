@@ -16,6 +16,13 @@ def test_dot_names_are_no_subfolder(tmp_path):
         assert target_dir(tmp_path, name) == tmp_path
 
 
+def test_trailing_dots_and_spaces_are_dropped_like_windows(tmp_path):
+    # Windows strips trailing dots/spaces, so "..." or ". ." would collapse to an empty name there.
+    for name in ("...", ". .", " . ", ".. "):
+        assert target_dir(tmp_path, name) == tmp_path
+    assert target_dir(tmp_path, "Mix vol. 2.") == tmp_path / "Mix vol. 2"
+
+
 def test_normal_title_is_a_direct_child(tmp_path):
     assert target_dir(tmp_path, "Mix - Ejemplo") == tmp_path / "Mix - Ejemplo"
     assert target_dir(tmp_path, "a/b").parent == tmp_path  # slashes are sanitized, never nested

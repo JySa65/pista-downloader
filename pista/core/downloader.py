@@ -283,7 +283,8 @@ def _trim_bytes(text: str, limit: int) -> str:
 def target_dir(outdir: str | Path, subfolder: str) -> Path:
     """Folder for a download: `outdir`, or `outdir/<sanitized playlist title>`; never outside `outdir`."""
     base = Path(outdir)
-    name = _trim_bytes(sanitize_filename(subfolder or "").strip(), MAX_NAME_BYTES).strip()
+    # Trailing dots/spaces are dropped (Windows strips them anyway), so "..." or ". ." can't collapse to "".
+    name = _trim_bytes(sanitize_filename(subfolder or "").strip(), MAX_NAME_BYTES).rstrip(". ").strip()
     if name in ("", ".", ".."):
         return base
     target = base / name
