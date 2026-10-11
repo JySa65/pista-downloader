@@ -108,10 +108,27 @@ def pyinstaller(ffmpeg_dir: Path) -> None:
             "--add-binary", f"{ffmpeg_dir / ('ffprobe' + exe)}{sep}ffmpeg"]
     for lic in ffmpeg_dir.glob("LICENSE*"):
         args += ["--add-data", f"{lic}{sep}ffmpeg"]
+    args += deno_args(sep)
     if target() == "linux":
         args += ["--collect-submodules", "qtpy"]
     run(sys.executable, "-m", "PyInstaller", *args, "--distpath", DIST, "--workpath", BUILD / "pyinstaller",
         "--specpath", BUILD, ROOT / "main.py")
+
+
+def deno_args(sep: str) -> list[str]:
+    """Bundle Deno (MIT, from the `deno` wheel pinned with hashes in uv.lock) and yt-dlp's EJS solver scripts.
+
+    YouTube now requires solving JS challenges; without a JS runtime yt-dlp falls back to limited
+    clients and downloads may fail with HTTP 403.
+    """
+    import deno
+
+    binary = Path(deno.find_deno_bin())
+    lic = BUILD / "LICENSE-deno.txt"
+    dist_info = next(Path(deno.__file__).parent.parent.glob("deno-*.dist-info"))
+    shutil.copy(dist_info / "licenses" / "LICENSE", lic)
+    return ["--add-binary", f"{binary}{sep}deno", "--add-data", f"{lic}{sep}deno",
+            "--hidden-import", "yt_dlp_ejs", "--collect-all", "yt_dlp_ejs"]
 
 
 def package_macos(v: str) -> Path:

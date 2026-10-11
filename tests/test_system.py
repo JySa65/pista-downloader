@@ -36,13 +36,16 @@ def test_default_outdir_prefers_music_then_downloads_then_home(tmp_path):
 
 
 # --- ffmpeg lookup and cache dir ---
-from youtube_download.core.system import bundled_dirs, ffmpeg_location, user_cache_dir  # noqa: E402
+from youtube_download.core.system import (  # noqa: E402
+    bundled_dirs, ffmpeg_location, no_window, open_command, tool_path, user_cache_dir,
+)
 
 
 def test_bundled_dirs_only_when_frozen(tmp_path):
     assert bundled_dirs(False, None, str(tmp_path / "python")) == []
-    assert bundled_dirs(True, str(tmp_path / "meipass"), str(tmp_path / "app" / "YouTubeDownload")) == [
-        tmp_path / "meipass" / "ffmpeg", tmp_path / "meipass", tmp_path / "app" / "ffmpeg", tmp_path / "app"
+    m, a = tmp_path / "meipass", tmp_path / "app"
+    assert bundled_dirs(True, str(m), str(a / "YouTubeDownload")) == [
+        m / "ffmpeg", m / "deno", m, a / "ffmpeg", a / "deno", a
     ]
 
 
@@ -69,3 +72,28 @@ def test_user_cache_dir_per_os(tmp_path):
     assert user_cache_dir("win32", {}, h) == h / "AppData" / "Local" / "YouTubeDownload" / "Cache"
     assert user_cache_dir("linux", {"XDG_CACHE_HOME": str(h / "x")}, h) == h / "x" / "YouTubeDownload"
     assert user_cache_dir("linux", {}, h) == h / ".cache" / "YouTubeDownload"
+
+
+def test_tool_path_bundled_then_extra_then_path(tmp_path):
+    bundled, scripts = tmp_path / "b", tmp_path / "s"
+    bundled.mkdir(); scripts.mkdir()
+    (scripts / "deno").write_bytes(b"")
+    assert tool_path("deno", [bundled, scripts], which_of(), "darwin") == str(scripts / "deno")
+    (bundled / "deno").write_bytes(b"")
+    assert tool_path("deno", [bundled, scripts], which_of(), "darwin") == str(bundled / "deno")
+    assert tool_path("deno", [], which_of("deno"), "linux") == "/bin/deno"
+    assert tool_path("deno", [], which_of(), "linux") is None
+    (bundled / "deno.exe").write_bytes(b"")
+    assert tool_path("deno", [bundled], which_of(), "win32") == str(bundled / "deno.exe")
+
+
+def test_no_window_only_on_windows():
+    import subprocess
+    assert no_window("darwin") == {} and no_window("linux") == {}
+    assert no_window("win32") == {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)}
+
+
+def test_open_command_per_os():
+    assert open_command("darwin", "/x y") == ["open", "/x y"]
+    assert open_command("linux", "/x") == ["xdg-open", "/x"]
+    assert open_command("win32", "C:/x") is None  # os.startfile is used instead

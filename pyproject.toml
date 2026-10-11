@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "nicegui[native]>=3.18.0",
-    "yt-dlp>=2026.8.19",
+    "yt-dlp[default,deno]>=2026.8.19",
 ]
 
 [dependency-groups]
