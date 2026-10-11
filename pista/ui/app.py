@@ -40,6 +40,7 @@ FFMPEG_MISSING = ("No se encontró ffmpeg. Instálalo para descargar (macOS: bre
                   "Windows: winget install ffmpeg · Linux: sudo apt install ffmpeg).")
 FORMATS = {"audio": "Audio · MP3", "video": "Video · MP4"}
 TAGS = {"video": "Video", "playlist": "Playlist", "mix": "Mix"}
+FMT_NAME = {"audio": "MP3", "video": "MP4"}
 RETRY_DELAY = 10  # seconds before the automatic second attempt of failed items
 logger = logging.getLogger("pista")
 CONSENT = {"ok": False}  # «Confirmo que tengo derecho…»: remembered for this app session only
@@ -345,7 +346,11 @@ def index() -> None:
 
     def set_format(f: str) -> None:
         nonlocal fmt
+        if busy and f != fmt:
+            ui.notify("Cambia el formato cuando termine la descarga en curso.", type="warning")
+            return
         fmt = f
+        queue.set_format(f)  # «Listo» is per format: re-evaluate every row
         for k, b in f_btns.items():
             b.classes(replace="on" if k == f else "")
         set_quality(DEFAULT_QUALITY[f])
@@ -426,10 +431,17 @@ def index() -> None:
                 link_errors.pop(o.url, None)
                 log(f"→ {o.url} ({TAGS[o.kind].lower()}, {len(o.tracks)} pistas)")
                 found += o.tracks
+        dups = [t.id for t in found if t.id in queue.state]
+        for tid in dups:  # re-added: make sure it's selected if it still has to be downloaded in this format
+            if queue.state[tid][0] not in ("done", "skipped"):
+                queue.checked[tid] = True
+        dup_pending = sum(queue.state[tid][0] in ("queued", "stopped", "error") for tid in set(dups))
+        if dups:
+            queue._changed()
         added = queue.add_tracks(found, new=busy)
         loaded = {o.url for o in outcomes if o.tracks}
         set_links([u for u in links if u not in loaded])  # failed or cancelled links stay, with their reason
-        text, kind = load_message(outcomes, added)
+        text, kind = load_message(outcomes, added, dup_pending, FMT_NAME[fmt])
         log(text, logging.ERROR if kind == "error" else logging.WARNING if kind == "warning" else logging.INFO)
         ui.notify(text, type={"ok": "positive", "info": "info", "warning": "warning", "error": "negative"}[kind],
                   multi_line=True)
@@ -487,9 +499,8 @@ def index() -> None:
         plan = await confirm_dialog(make_plan, lambda: outdir.value, change_outdir, CONSENT)
         if plan is None:
             return
-        for tid in plan.skip:  # already in the archive for this format: no network needed
-            if tid in queue.state:
-                queue.set_state(tid, "skipped")
+        for tid in plan.skip:  # already in this format's archive: no network needed
+            queue.mark_done(tid, fmt, None, 0)
         for tid in plan.pending:
             if tid in queue.state and queue.state[tid][0] == "stopped":
                 queue.set_state(tid, "queued")

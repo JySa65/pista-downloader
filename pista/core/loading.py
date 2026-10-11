@@ -53,15 +53,25 @@ async def load_links(urls: list[str], list_tracks: Callable, *, limit: int,
     return outcomes
 
 
-def load_message(outcomes: list[LoadOutcome], added: int) -> tuple[str, str]:
-    """(text, kind: ok|info|warning|error) for the notification and the log line. Never a bare «0 añadidas»."""
+def load_message(outcomes: list[LoadOutcome], added: int, dup_pending: int = 0,
+                 fmt_name: str = "") -> tuple[str, str]:
+    """(text, kind: ok|info|warning|error) for the notification and the log line. Never a bare «0 añadidas».
+
+    dup_pending: tracks that were already in the queue and are still to download in the selected format
+    (e.g. done only as MP3 while MP4 is selected).
+    """
     failed = [o for o in outcomes if o.error]
     found = sum(len(o.tracks) for o in outcomes)
     parts = []
     if added:
         parts.append(f"{added} pista(s) añadidas" + ("" if failed else " al final de la cola"))
     elif found:
-        parts.append("La pista ya estaba en la cola" if found == 1 else f"Las {found} pistas ya estaban en la cola")
+        dup = "La pista ya estaba en la cola" if found == 1 else f"Las {found} pistas ya estaban en la cola"
+        if fmt_name and dup_pending:
+            dup += f"; se descargará{'n' if dup_pending > 1 else ''} en {fmt_name}"
+        elif fmt_name:
+            dup += f" (ya descargada{'s' if found > 1 else ''} en {fmt_name})"
+        parts.append(dup)
     if failed:
         reason = failed[0].error if len({o.error for o in failed}) == 1 else "varios motivos (ver el registro)"
         parts.append(f"{len(failed)} link{'s' if len(failed) > 1 else ''} no se "

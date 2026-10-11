@@ -218,6 +218,8 @@ class Queue(QueueModel):
                         attrs(ui.label(t.title).classes("yt-title"), title=t.title)
                         if t.id in self.new:
                             ui.label("Nuevo").classes("yt-new")
+                        for other in self.other_formats(t.id):  # done in the other format already
+                            ui.label("Ya en " + {"audio": "MP3", "video": "MP4"}.get(other, other)).classes("yt-new yt-had")
                     meta = ui.label().classes("yt-meta")
                     with ui.element("div").classes("yt-third"):
                         bar = ui.element("div").classes("yt-track")

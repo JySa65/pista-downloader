@@ -64,7 +64,7 @@ class Monkey:
         if self.active():
             return  # the UI's busy guard
         self._collect()
-        self.runner = BatchRunner(self.m, self.download, out="/out", quality="192", fmt="audio",
+        self.runner = BatchRunner(self.m, self.download, out="/out", quality="192", fmt=self.m.fmt,
                                   run_io=self.run_io, sleep=self.sleep, retry_delay=0.3, breaker=self.breaker)
         self.task = asyncio.ensure_future(self.runner.run())
         self.batches += 1
@@ -80,7 +80,7 @@ class Monkey:
         r = self.rng
         ids = [t.id for t in self.m.tracks]
         action = r.choice(["add", "add", "toggle", "all", "remove", "clear", "download", "download",
-                           "stop", "retry", "tick", "tick", "tick", "poll", "poll", "resume"])
+                           "stop", "retry", "tick", "tick", "tick", "poll", "poll", "resume", "format"])
         if action == "add":
             self.m.add_tracks([track(r.randrange(40)) for _ in range(r.randint(1, 3))], new=self.active())
         elif action == "toggle" and ids:
@@ -98,6 +98,8 @@ class Monkey:
             self.start()
         elif action == "poll" and self.active() and self.runner.current:  # the UI timer
             self.m.set_state(self.runner.current, "running", self.runner.pct, phase=self.runner.phase)
+        elif action == "format" and not self.active():  # the UI only allows it between batches
+            self.m.set_format("video" if self.m.fmt == "audio" else "audio")
         elif action == "resume":  # «Reanudar ahora»
             self.breaker.resume()
         elif action == "stop" and self.active():
@@ -132,6 +134,10 @@ class Monkey:
         elif running:
             assert running == [self.runner.current], where
         assert sum(m.counts().values()) == len(ids), where
+        assert set(m.done) <= set(ids), where
+        for t in ids:  # «Listo/Ya estaba» always means: finished in the selected format
+            finished = m.state[t][0] in ("done", "skipped")
+            assert not finished or m.fmt in m.done.get(t, {}), (where, t, m.state[t], m.done.get(t))
         assert 0 <= progress_total(m) <= 100, where
 
 

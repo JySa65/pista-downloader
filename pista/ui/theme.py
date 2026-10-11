@@ -146,6 +146,7 @@ button:disabled { opacity: .45; cursor: default; pointer-events: none; }
 .yt-switch { color: var(--text-2); }
 .yt-switch .q-toggle__label { padding-left: 8px; }
 .yt-cooldown { background: var(--amber-soft); color: var(--amber); border-top: 1px solid var(--line); }
+.yt-new.yt-had { background: var(--ok-soft); color: var(--ok); }
 .yt-new { flex-shrink: 0; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em;
   padding: 1px 5px; border-radius: 4px; background: var(--accent-soft); color: var(--link); }
 .yt-retry { height: 28px; border: 1px solid var(--danger-border); background: transparent; color: var(--danger);

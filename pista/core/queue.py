@@ -24,7 +24,15 @@ FINISHED = ("done", "skipped", "error", "stopped")
 
 
 class QueueModel:
-    def __init__(self) -> None:
+    """Rows and their state for the currently selected format (`fmt`).
+
+    Completion is remembered per format in `done`, so an MP3 being downloaded never hides the MP4:
+    switching the format re-evaluates every finished row.
+    """
+
+    def __init__(self, fmt: str = "audio") -> None:
+        self.fmt = fmt
+        self.done: dict[str, dict[str, tuple[str | None, int]]] = {}  # id -> fmt -> (path or None=archive, size)
         self.tracks: list[Track] = []
         self.checked: dict[str, bool] = {}
         self.state: dict[str, tuple[str, float]] = {}
@@ -78,7 +86,7 @@ class QueueModel:
 
     def _drop(self, ids: set[str]) -> None:
         self.tracks = [t for t in self.tracks if t.id not in ids]
-        for d in (self.checked, self.state, self.errors, self.fails, self.sizes, self.phase):
+        for d in (self.checked, self.state, self.errors, self.fails, self.sizes, self.phase, self.done):
             for k in ids:
                 d.pop(k, None)
         self.new -= ids
@@ -106,6 +114,39 @@ class QueueModel:
         else:
             self.phase.pop(track_id, None)
         self._state_changed(track_id)
+
+    def mark_done(self, track_id: str, fmt: str, path: str | None, size: int = 0) -> None:
+        """A finished download (path) or an archive skip (path None) for one format."""
+        if track_id not in self.state:
+            return
+        self.done.setdefault(track_id, {})[fmt] = (path, size)
+        if fmt == self.fmt:
+            if size:
+                self.sizes[track_id] = size
+            self.set_state(track_id, "done" if path else "skipped")
+
+    def other_formats(self, track_id: str) -> list[str]:
+        """Formats this row is already downloaded in, other than the selected one (for «Ya en MP3»)."""
+        return [f for f in self.done.get(track_id, {}) if f != self.fmt]
+
+    def set_format(self, fmt: str) -> None:
+        """Re-evaluate finished rows for the newly selected format (errors/stops are left as they are)."""
+        self.fmt = fmt
+        for tid, (state, _) in list(self.state.items()):
+            mine = self.done.get(tid, {}).get(fmt)
+            if mine is not None:
+                path, size = mine
+                if size:
+                    self.sizes[tid] = size
+                else:
+                    self.sizes.pop(tid, None)
+                if state in ("queued", "done", "skipped"):
+                    self.state[tid] = ("done" if path else "skipped", 0.0)
+            else:
+                self.sizes.pop(tid, None)
+                if state in ("done", "skipped"):
+                    self.state[tid] = ("queued", 0.0)
+        self._changed()
 
     def title(self, track_id: str) -> str:
         return next((t.title for t in self.tracks if t.id == track_id), track_id)
@@ -304,9 +345,7 @@ class BatchRunner:
                 if t.id not in m.state:  # removed right as it finished
                     continue
                 self.results[t.id] = Result(t.title, "done" if path else "skipped", path, size)
-                if size:
-                    m.sizes[t.id] = size
-                m.set_state(t.id, "done" if path else "skipped")
+                m.mark_done(t.id, self.fmt, path, size)
                 self.log(f"✓ {path} ({human_size(size)})" if path else f"= {t.title} — ya estaba, se omite",
                          logging.INFO)
             except CooldownActive:  # another activity tripped the breaker: wait, then retry this item
