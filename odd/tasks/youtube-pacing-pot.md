@@ -24,7 +24,7 @@ provider plugin (https://github.com/yt-dlp/yt-dlp/wiki/Extractors, PO-Token-Guid
     download; status line and log say why; Stop interrupts; yt-dlp per-format sleep removed
     (no double sleep on MP4); tests updated (tests/test_pacing.py).
   - Checks: `.venv/bin/python -m pytest -q --ignore=tests/chaos`
-- [ ] T2 PO Token provider (bgutil) — approved by user (2026-10-11), keep updated like yt-dlp
+- [x] T2 PO Token provider (bgutil) — approved by user (2026-10-11), keep updated like yt-dlp
   - [x] T2a Prototype on macOS: plugin + server (pinned 2.0.2) + bundled deno, script mode; prove a
         token is generated in a real yt-dlp run (log shows bgutil:script provider). Route: delegated.
   - [x] T2b Integrate in dev env: dependency pinned in pyproject/uv.lock, server fetched by a script,
@@ -67,6 +67,9 @@ provider plugin (https://github.com/yt-dlp/yt-dlp/wiki/Extractors, PO-Token-Guid
   GREEN: pytest -q 297 passed; build.py --skip-package OK; codesign verify OK; frozen app retrieved
   a gvs PO token (bgutil:script-deno). .app 304M (server 88M). First packaging writer died on auth
   error; RDD for its partial diff declined by user (candidate-scoped).
+- Released v0.3.5 (run 38183203614): dmg arm64, AppImage x86_64, Setup exe. CI fetched bgutil
+  server + canvas 3.2.3 on all three. Windows test fix: blocked-folder test skipped on win32/root.
+  Runtime token generation verified only on macOS.
 
 ## Next step
-Verify Windows/Linux builds in CI (needs user OK to push the branch).
+Confirm PO tokens on an installed Windows/Linux build when possible.
