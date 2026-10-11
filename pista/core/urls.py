@@ -27,3 +27,15 @@ def video_url(url: str) -> str:
     """Canonical watch URL without list/index/start_radio params."""
     vid = video_id(url)
     return f"https://www.youtube.com/watch?v={vid}" if vid else url.strip()
+
+
+YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"}
+
+
+def is_youtube(url: str) -> bool:
+    """Only YouTube links are accepted (http/https, exact host match, no credentials in the URL)."""
+    try:
+        p = urlparse((url or "").strip())
+    except ValueError:
+        return False
+    return p.scheme in ("http", "https") and not p.username and (p.hostname or "").lower() in YOUTUBE_HOSTS

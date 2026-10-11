@@ -17,6 +17,9 @@ Cancelled = DownloadCancelled  # raised by download() when cancel_event is set
 
 log = logging.getLogger("pista.yt_dlp")
 
+# Only YouTube extractors: yt-dlp's generic extractor would otherwise read metadata from any web page.
+ALLOWED_EXTRACTORS = ["youtube", "youtube:tab", "youtube:playlist", "youtubeytbe"]
+
 ARCHIVES = {"audio": ".downloaded-audio.txt", "video": ".downloaded-video.txt"}
 
 
@@ -68,6 +71,7 @@ def base_opts(ffmpeg: str | None, deno: str | None, logger: object | None) -> di
         "retries": 10,
         "fragment_retries": 10,
         "extractor_retries": 3,
+        "allowed_extractors": ALLOWED_EXTRACTORS,
     }
     if ffmpeg:
         opts["ffmpeg_location"] = ffmpeg
@@ -148,7 +152,7 @@ def download(
         elif d.get("status") == "finished":
             on_progress(95.0, "Procesando…")
 
-    target = Path(outdir) / sanitize_filename(subfolder) if subfolder else Path(outdir)
+    target = target_dir(outdir, subfolder)
     opts = {
         **format_opts(fmt, quality),
         "noplaylist": True,
@@ -163,6 +167,19 @@ def download(
         return None  # skipped: already in download archive
     on_progress(100.0, "Listo")
     return downloads[0]["filepath"]
+
+
+def target_dir(outdir: str | Path, subfolder: str) -> Path:
+    """Folder for a download: `outdir`, or `outdir/<sanitized playlist title>`; never outside `outdir`."""
+    base = Path(outdir)
+    name = sanitize_filename(subfolder or "").strip()
+    if name in ("", ".", ".."):
+        return base
+    target = base / name
+    resolved_base = base.resolve()
+    if target.resolve().parent != resolved_base:  # e.g. an existing symlink pointing elsewhere
+        raise ValueError(f"La carpeta de destino queda fuera de {base}: {name}")
+    return target
 
 
 def preview_clip_path(url: str, dest_dir: str | Path) -> Path:

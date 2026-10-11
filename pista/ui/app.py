@@ -23,7 +23,7 @@ from pista.core.system import (
     LEGACY_APP_NAME, migrate_legacy, user_cache_dir, default_outdir, find_deno, find_ffmpeg, has_ffmpeg, log_dir, open_path, read_clipboard, reveal_label, reveal_path,
 )
 from pista.core.report import REPO, current_os, issue_url
-from pista.core.urls import classify
+from pista.core.urls import classify, is_youtube
 
 from . import theme
 from .components import Queue, about_dialog, attrs, ask_mix, button, close_dialogs, confirm_dialog, log_class, log_file_dialog, summary_dialog
@@ -286,11 +286,15 @@ def index() -> None:
             ui.notify("El portapapeles no tiene links http/https.", type="warning")
 
     def add_urls(text: str) -> int:
-        new = [u for u in re.split(r"[\s,]+", text or "") if re.match(r"https?://", u) and u not in links]
-        new = list(dict.fromkeys(new))
+        found = [u for u in re.split(r"[\s,]+", text or "") if re.match(r"https?://", u)]
+        rejected = [u for u in found if not is_youtube(u)]
+        if rejected:
+            ui.notify(f"Solo se aceptan links de YouTube (youtube.com, youtu.be). Se ignoraron {len(rejected)}.",
+                      type="warning")
+        new = list(dict.fromkeys(u for u in found if is_youtube(u) and u not in links))
         if new:
             set_links(links + new)
-        return len(new)
+        return len(new) + len(rejected)  # rejected links already got their own message
 
     def add_links(text: str) -> None:
         if not add_urls(text) and text and text.strip():
