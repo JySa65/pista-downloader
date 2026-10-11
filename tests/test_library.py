@@ -2,7 +2,7 @@ from youtube_download.core.library import scan, split_artist
 
 
 def test_split_artist_on_first_dash():
-    assert split_artist("FUERZA REGIDA - MARLBORO ROJO (VIDEO OFICIAL)") == ("FUERZA REGIDA", "MARLBORO ROJO (VIDEO OFICIAL)")
+    assert split_artist("SAMPLE ARTIST - SAMPLE SONG (OFFICIAL VIDEO)") == ("SAMPLE ARTIST", "SAMPLE SONG (OFFICIAL VIDEO)")
     assert split_artist("A – B - C") == ("A", "B - C")
 
 
