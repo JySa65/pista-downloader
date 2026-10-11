@@ -1,6 +1,6 @@
 [project]
 name = "pista-downloader"
-version = "0.3.4"
+version = "0.3.5"
 description = "Desktop app to download YouTube videos, playlists and Mixes as MP3/MP4 with yt-dlp, plus a local player."
 readme = "README.md"
 license = "GPL-3.0-or-later"
