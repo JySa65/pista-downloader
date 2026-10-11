@@ -25,12 +25,12 @@ provider plugin (https://github.com/yt-dlp/yt-dlp/wiki/Extractors, PO-Token-Guid
     (no double sleep on MP4); tests updated (tests/test_pacing.py).
   - Checks: `.venv/bin/python -m pytest -q --ignore=tests/chaos`
 - [ ] T2 PO Token provider (bgutil) — approved by user (2026-10-11), keep updated like yt-dlp
-  - [ ] T2a Prototype on macOS: plugin + server (pinned 2.0.2) + bundled deno, script mode; prove a
+  - [x] T2a Prototype on macOS: plugin + server (pinned 2.0.2) + bundled deno, script mode; prove a
         token is generated in a real yt-dlp run (log shows bgutil:script provider). Route: delegated.
-  - [ ] T2b Integrate in dev env: dependency pinned in pyproject/uv.lock, server fetched by a script,
+  - [x] T2b Integrate in dev env: dependency pinned in pyproject/uv.lock, server fetched by a script,
         extractor_args server_home in base_opts only when the server is present; tests.
   - [ ] T2c Packaging: build.py ships yt-dlp-plugins/ + server (src + node_modules) per OS; CI.
-  - [ ] T2d Auto-update: extend .github/workflows/update-yt-dlp.yml to bump bgutil (plugin + server).
+  - [x] T2d Auto-update: extend .github/workflows/update-yt-dlp.yml to bump bgutil (plugin + server).
   - Findings: pip wheel is only the Python plugin; token generator (server/src + node_modules with
     native `canvas`) must be shipped per OS (mac arm64/x64, Windows). Script mode reuses the bundled
     deno via js_runtimes (needs deno >= 2.4.3; bundled 2.9.7). PyInstaller: plugins must be real
@@ -43,5 +43,16 @@ provider plugin (https://github.com/yt-dlp/yt-dlp/wiki/Extractors, PO-Token-Guid
   No pause after cooldown/retry delay (already a pause). Chaos hang tests use pace=(0, 0).
   Review assess: medium, review_due=false (under_budget) — pending in slice.
 
+- T2a done (scratchpad, no repo change): macOS arm64 + bundled deno 2.9.7 + bgutil 2.0.2 script mode
+  generated gvs/subs tokens for mweb (provider `bgutil:script-deno`) and downloaded bestaudio with
+  `pot=` param, no 403. canvas ships prebuilt (no compiler). server/ = 174M, ~93M without devDeps.
+  ~6 s per new video token (bound to video id); cache 6 h. http-provider ping error logs at normal
+  level (hide it). Needs src/, node_modules/ (symlinks), package.json, deno.json; writable cache dir.
+- T2b/T2d done: plugin dep >=2.0.2 in uv.lock; packaging/fetch_pot_server.py fetches server at the
+  installed plugin version into vendor/ (reachability prune → 88M, idempotent). base_opts adds
+  server_home + player_client ['default','mweb'] only when deno + server exist (default clients
+  visionos/web never request a PO token). bgutil http ping message downgraded to DEBUG. Weekly
+  workflow bumps yt-dlp + bgutil in one PR. GREEN: pytest -q 293 passed; real run retrieved gvs token.
+
 ## Next step
-T2a prototype (running), then T2b–T2d.
+T2c packaging (macOS local build + CI on Windows/Linux).

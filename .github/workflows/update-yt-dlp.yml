@@ -1,6 +1,9 @@
 name: Update yt-dlp
 
 # YouTube breaks old yt-dlp releases; bump the lock weekly and open a PR.
+# bgutil (PO Token plugin) moves with YouTube too, so it rides in the same PR. Its generator server is
+# fetched at build time for the installed plugin version (packaging/fetch_pot_server.py): uv.lock is
+# the only file to bump.
 on:
   schedule:
     - cron: "0 6 * * 1" # Mondays 06:00 UTC
@@ -19,8 +22,8 @@ jobs:
 
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
 
-      - name: Upgrade yt-dlp in uv.lock
-        run: uv lock --upgrade-package yt-dlp
+      - name: Upgrade yt-dlp and bgutil in uv.lock
+        run: uv lock --upgrade-package yt-dlp --upgrade-package bgutil-ytdlp-pot-provider
 
       - name: Open PR if changed
         env:
@@ -28,16 +31,17 @@ jobs:
           BASE: ${{ github.event.repository.default_branch }}
         run: |
           if git diff --quiet uv.lock; then
-            echo "yt-dlp already up to date"; exit 0
+            echo "yt-dlp and bgutil already up to date"; exit 0
           fi
           ver=$(uv tree --package yt-dlp --depth 0 2>/dev/null | head -1 | awk '{print $2}')
-          branch="deps/yt-dlp-${ver:-update}"
+          pot=$(uv tree --package bgutil-ytdlp-pot-provider --depth 0 2>/dev/null | head -1 | awk '{print $2}')
+          branch="deps/yt-dlp-${ver:-update}-bgutil-${pot:-update}"
           if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
             echo "branch $branch already exists"; exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$branch"
-          git commit -am "build(deps): bump yt-dlp to ${ver:-latest}"
+          git commit -am "build(deps): bump yt-dlp to ${ver:-latest} and bgutil to ${pot:-latest}"
           git push origin "$branch"
           gh pr create --fill --base "$BASE" --head "$branch"

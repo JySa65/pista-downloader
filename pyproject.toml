@@ -24,6 +24,7 @@ classifiers = [
 ]
 requires-python = ">=3.14"
 dependencies = [
+    "bgutil-ytdlp-pot-provider>=2.0.2",
     "nicegui[native]>=3.18.0",
     "yt-dlp[default,deno]>=2026.8.19",
 ]

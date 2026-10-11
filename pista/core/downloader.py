@@ -17,7 +17,7 @@ from .breaker import GATE
 from .models import Track
 from .plan import video_sizes
 from .progress import phase_for_postprocessor
-from .system import find_deno, find_ffmpeg
+from .system import find_deno, find_ffmpeg, find_pot_server
 from .urls import is_youtube, video_id, video_url
 
 Cancelled = DownloadCancelled  # raised by download() when cancel_event is set
@@ -52,18 +52,22 @@ def format_opts(fmt: str, quality: str) -> dict:
     raise ValueError(f"unknown format: {fmt}")
 
 
+# bgutil's HTTP provider pings a server Pista never runs (it uses the script provider): not a problem.
+_EXPECTED_NOISE = "This is expected if you are using the script method."
+
+
 class _Logger:
     """Routes yt-dlp output to the app log (the file keeps warnings/errors yt-dlp would print)."""
 
     def debug(self, msg: str) -> None:
         # With quiet=True yt-dlp sends its normal screen output here too; keep it (it explains 403s etc.).
-        (log.debug if msg.startswith("[debug] ") else log.info)(msg)
+        (log.debug if msg.startswith("[debug] ") or _EXPECTED_NOISE in msg else log.info)(msg)
 
     def info(self, msg: str) -> None:
-        log.info(msg)
+        (log.debug if _EXPECTED_NOISE in msg else log.info)(msg)
 
     def warning(self, msg: str) -> None:
-        log.warning(msg)
+        (log.debug if _EXPECTED_NOISE in msg else log.warning)(msg)
 
     def error(self, msg: str) -> None:
         log.error(msg)
@@ -82,7 +86,8 @@ def set_cookie_browser(browser: str | None) -> None:
     _cookie_browser = browser
 
 
-def base_opts(ffmpeg: str | None, deno: str | None, logger: object | None, cookies_browser: str | None = None) -> dict:
+def base_opts(ffmpeg: str | None, deno: str | None, logger: object | None, cookies_browser: str | None = None,
+              pot_server: Path | str | None = None) -> dict:
     """Options shared by every yt-dlp call: bundled tools, retries, quiet console, portable names."""
     opts = {
         "quiet": True,
@@ -103,6 +108,13 @@ def base_opts(ffmpeg: str | None, deno: str | None, logger: object | None, cooki
         opts["ffmpeg_location"] = ffmpeg
     if deno:
         opts["js_runtimes"] = {"deno": {"path": deno}}
+        if pot_server:
+            # PO Tokens (YouTube's anti-bot proof) generated locally by bgutil's script, run with the same deno.
+            # yt-dlp's default clients never request one; mweb does, so add it (~6 s per new video, cached 6 h).
+            opts.setdefault("extractor_args", {}).update({
+                "youtubepot-bgutilscript": {"server_home": [str(pot_server)]},
+                "youtube": {"player_client": ["default", "mweb"]},
+            })
     if logger is not None:
         opts["logger"] = logger
     if cookies_browser:
@@ -117,7 +129,7 @@ def _ydl(extra: dict) -> yt_dlp.YoutubeDL:
     # yt-dlp only honors `ffmpeg_location` in some code paths (e.g. picking the downloader for
     # partial/section downloads checks this context var, which only its CLI sets). Set it in this thread.
     FFmpegPostProcessor._ffmpeg_location.set(ffmpeg)
-    return yt_dlp.YoutubeDL({**base_opts(ffmpeg, find_deno(), _Logger(), _cookie_browser), **extra})
+    return yt_dlp.YoutubeDL({**base_opts(ffmpeg, find_deno(), _Logger(), _cookie_browser, find_pot_server()), **extra})
 
 
 def _thumbnail(entry: dict) -> str | None:

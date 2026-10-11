@@ -90,6 +90,22 @@ def find_deno() -> str | None:
     return tool_path("deno", _search_dirs())
 
 
+def pot_server_dir(search_dirs: list[Path]) -> Path | None:
+    """First `<dir>/bgutil-server` holding the PO Token generator script, or None."""
+    for d in search_dirs:
+        if (d / "bgutil-server" / "src" / "generate_once.ts").is_file():
+            return d / "bgutil-server"
+    return None
+
+
+@cache
+def find_pot_server() -> Path | None:
+    """bgutil's PO Token generator (run by deno): bundled in a build, `vendor/` from source
+    (fetched by packaging/fetch_pot_server.py). Without it yt-dlp just requests no PO token."""
+    dirs = bundled_dirs(getattr(sys, "frozen", False), getattr(sys, "_MEIPASS", None), sys.executable)
+    return pot_server_dir([*dirs, Path(__file__).resolve().parents[2] / "vendor"])
+
+
 def open_command(platform: str, target: str) -> list[str] | None:
     """Command that opens a file/folder with the OS default app; None on Windows (os.startfile)."""
     if platform == "win32":

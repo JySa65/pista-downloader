@@ -14,3 +14,6 @@ design/
 
 # Local agent memory config (not versioned)
 .engram/
+
+# Fetched build inputs (packaging/fetch_pot_server.py)
+vendor/
