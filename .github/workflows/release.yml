@@ -22,9 +22,9 @@ jobs:
             target: linux
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
 
       - name: Check tag matches pyproject version
         if: startsWith(github.ref, 'refs/tags/v')
@@ -45,7 +45,7 @@ jobs:
 
       - name: Cache LGPL ffmpeg (macOS source build)
         if: matrix.target == 'macos'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: build/ffmpeg
           key: ffmpeg-macos-${{ hashFiles('packaging/build_ffmpeg_macos.sh') }}
@@ -67,7 +67,7 @@ jobs:
           ff=build/ffmpeg/ffmpeg; [ -f "$ff.exe" ] && ff="$ff.exe"
           "$ff" -hide_banner -version | tee /dev/stderr | grep -q -- "--enable-gpl" && exit 1 || true
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: installer-${{ matrix.target }}
           path: |
@@ -83,12 +83,12 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: installers
           merge-multiple: true
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: installers/*
           generate_release_notes: true
