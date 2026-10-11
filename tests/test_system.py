@@ -58,7 +58,7 @@ def test_ffmpeg_windows_exe_name(tmp_path):
 
 
 def test_ffmpeg_falls_back_to_path_then_none(tmp_path):
-    assert ffmpeg_location([tmp_path], which_of("ffmpeg"), "linux") == "/bin"
+    assert ffmpeg_location([tmp_path], which_of("ffmpeg"), "linux") == str(Path("/bin"))
     assert ffmpeg_location([tmp_path], which_of(), "linux") is None
 
 
