@@ -127,6 +127,23 @@ def has_ffmpeg() -> bool:
     return find_ffmpeg() is not None
 
 
+def writable_dir(name: str) -> Path:
+    """`<user cache>/<name>`, or a per-user temp folder if the cache can't be written (never raises)."""
+    import tempfile
+
+    for base in (user_cache_dir(), Path(tempfile.gettempdir()) / f"{APP_NAME}-{os.getuid() if hasattr(os, 'getuid') else 'user'}"):
+        d = base / name
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+            probe = d / ".write-test"
+            probe.write_bytes(b"")
+            probe.unlink()
+            return d
+        except OSError:
+            continue
+    return Path(tempfile.mkdtemp(prefix=f"{APP_NAME}-{name}-"))
+
+
 def log_dir() -> Path:
     return user_cache_dir() / "logs"
 

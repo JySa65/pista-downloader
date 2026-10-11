@@ -10,11 +10,10 @@ from pista.core.links import is_release_url, is_video_url, open_url
 from pista.core.models import Track
 from pista.core.plan import Plan
 from pista.core.queue import QueueModel
-from pista.core.system import user_cache_dir
+from pista.core.system import writable_dir
 from pista.core.updates import fetch_latest, update_status
 
-PREVIEW_DIR = user_cache_dir() / "previews"
-PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+PREVIEW_DIR = writable_dir("previews")  # falls back to a temp folder if the cache can't be written
 app.add_media_files("/media", PREVIEW_DIR)
 
 
