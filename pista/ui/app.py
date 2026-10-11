@@ -1,5 +1,4 @@
 """NiceGUI desktop app with two tabs: Descargar and Reproductor (layout: design v2)."""
-import asyncio
 import importlib.util
 import logging
 import os
@@ -8,7 +7,7 @@ import sys
 import time
 from pathlib import Path
 
-from nicegui import app, core, run, ui
+from nicegui import app, background_tasks, core, run, ui
 
 from pista import build_date, version
 from pista.core.applog import setup_logging
@@ -467,6 +466,12 @@ def index() -> None:
         log(f"Cola limpiada: {removed} quitadas.")
         set_total()
 
+    page = ui.context.client  # background tasks have no slot; UI they create must enter the page explicitly
+
+    async def start_in_page() -> None:
+        with page.layout:
+            await start_download()
+
     def retry(track_ids: list[str]) -> None:
         for tid in track_ids:
             if tid not in queue.state:
@@ -479,7 +484,7 @@ def index() -> None:
             log(f"↻ {title} — reintentando ({queue.fails.get(tid, 0) + 1}/{MAX_ATTEMPTS})", logging.WARNING)
         queue.on_change()
         if not busy:
-            asyncio.create_task(start_download())  # otherwise the running batch picks them up
+            background_tasks.create(start_in_page())  # otherwise the running batch picks them up
 
     def make_plan(consent: bool = False):
         out = Path((outdir.value or "").strip()).expanduser()
