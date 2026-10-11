@@ -41,6 +41,7 @@ provider plugin (https://github.com/yt-dlp/yt-dlp/wiki/Extractors, PO-Token-Guid
 - Exploration done (pacing, logger, status flow, packaging mapped).
 - T1 done in 451683f: RED ImportError PACE_MAX; GREEN `pytest -q` (incl. chaos) 287 passed.
   No pause after cooldown/retry delay (already a pause). Chaos hang tests use pace=(0, 0).
+  Review assess: medium, review_due=false (under_budget) — pending in slice.
 
 ## Next step
 T2a prototype (running), then T2b–T2d.
