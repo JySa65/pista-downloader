@@ -10,7 +10,7 @@ import time
 import webbrowser
 from pathlib import Path
 
-from nicegui import app, native, run, ui
+from nicegui import app, core, run, ui
 
 from pista import build_date, version
 from pista.core.applog import setup_logging
@@ -28,6 +28,7 @@ from pista.core.urls import classify, is_youtube
 from . import theme
 from .components import Queue, about_dialog, attrs, ask_mix, button, close_dialogs, confirm_dialog, log_class, log_file_dialog, summary_dialog
 from .player import Player
+from .security import HOST, harden, pick_port
 
 QUALITIES = {"audio": ["128", "160", "192", "256", "320"], "video": ["360p", "480p", "720p", "1080p", "4K"]}
 DEFAULT_QUALITY = {"audio": "192", "video": "720p"}
@@ -571,8 +572,12 @@ def run_app() -> None:
     if not browser and not native_available():
         print("Ventana nativa no disponible (falta pywebview o GTK/Qt); abriendo en el navegador.", file=sys.stderr)
         browser = True
+    port = pick_port()
+    harden(app, core.sio, port)  # loopback Host only, socket.io only from the app's own origin
     if browser:
-        ui.run(reload=False, title="Pista", favicon=theme.ICON_SVG)
+        # `show` opens the default browser; the server still only listens on 127.0.0.1.
+        ui.run(reload=False, title="Pista", favicon=theme.ICON_SVG, host=HOST, port=port,
+               show=os.environ.get("PISTA_NO_BROWSER") != "1")
     else:
         app.native.window_args["maximized"] = True  # create_window kwarg: Cocoa, WinForms, GTK and Qt honor it
         if sys.platform.startswith("linux"):
@@ -583,4 +588,4 @@ def run_app() -> None:
             if getattr(sys, "frozen", False):
                 app.native.start_args["gui"] = "qt"  # the Linux build bundles the Qt backend
         ui.run(native=True, reload=False, title="Pista", window_size=(1100, 740),
-               port=native.find_open_port(), favicon=theme.ICON_SVG)
+               host=HOST, port=port, favicon=theme.ICON_SVG)
