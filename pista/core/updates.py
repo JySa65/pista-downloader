@@ -52,3 +52,14 @@ def update_status(release, current: str) -> tuple[str, str, str | None]:
         url = release.get("html_url")
         return ("new", f"Hay una versión nueva: {tag}", url if isinstance(url, str) else None)
     return ("latest", "Tienes la última versión.", None)
+
+
+_session_result: tuple[str, str, str | None] | None = None
+
+
+def check_for_updates(current: str, fetch=fetch_latest) -> tuple[str, str, str | None]:
+    """At most one request per app session (only when the user asks; never automatically)."""
+    global _session_result
+    if _session_result is None or _session_result[0] == "error":
+        _session_result = update_status(fetch(), current)
+    return _session_result

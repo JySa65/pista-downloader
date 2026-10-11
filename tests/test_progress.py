@@ -61,6 +61,8 @@ def test_download_reports_phases_from_yt_dlp_hooks(tmp_path, monkeypatch):
             return self
         def __exit__(self, *a):
             return False
+        def add_post_processor(self, pp, when="post_process"):
+            pass
         def extract_info(self, url, download=True):
             for hook in self.opts["progress_hooks"]:
                 hook({"status": "downloading", "downloaded_bytes": 50, "total_bytes": 100})

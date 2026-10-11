@@ -10,6 +10,7 @@ import random
 from yt_dlp.utils import DownloadError
 
 from pista.core.batch import MAX_ATTEMPTS
+from pista.core.breaker import Breaker
 from pista.core.downloader import Cancelled
 from pista.core.progress import PHASES
 from pista.core.queue import STATES, BatchRunner, QueueModel, progress_total
@@ -28,6 +29,12 @@ class Monkey:
         self.task: asyncio.Task | None = None
         self.summaries = []
         self.batches = 0
+        self.now = 0.0  # fake clock for the YouTube breaker; runner sleeps advance it
+        self.breaker = Breaker(clock=lambda: self.now)
+
+    async def sleep(self, seconds):
+        self.now += seconds
+        await asyncio.sleep(0)
 
     # --- fakes ---
     async def run_io(self, fn, *args):
@@ -58,7 +65,7 @@ class Monkey:
             return  # the UI's busy guard
         self._collect()
         self.runner = BatchRunner(self.m, self.download, out="/out", quality="192", fmt="audio",
-                                  run_io=self.run_io, sleep=lambda s: asyncio.sleep(0), retry_delay=0.3)
+                                  run_io=self.run_io, sleep=self.sleep, retry_delay=0.3, breaker=self.breaker)
         self.task = asyncio.ensure_future(self.runner.run())
         self.batches += 1
 
@@ -73,7 +80,7 @@ class Monkey:
         r = self.rng
         ids = [t.id for t in self.m.tracks]
         action = r.choice(["add", "add", "toggle", "all", "remove", "clear", "download", "download",
-                           "stop", "retry", "tick", "tick", "tick", "poll", "poll"])
+                           "stop", "retry", "tick", "tick", "tick", "poll", "poll", "resume"])
         if action == "add":
             self.m.add_tracks([track(r.randrange(40)) for _ in range(r.randint(1, 3))], new=self.active())
         elif action == "toggle" and ids:
@@ -91,6 +98,8 @@ class Monkey:
             self.start()
         elif action == "poll" and self.active() and self.runner.current:  # the UI timer
             self.m.set_state(self.runner.current, "running", self.runner.pct, phase=self.runner.phase)
+        elif action == "resume":  # «Reanudar ahora»
+            self.breaker.resume()
         elif action == "stop" and self.active():
             self.runner.stop()
         elif action == "retry":
@@ -113,6 +122,8 @@ class Monkey:
         assert all(s in STATES and 0 <= p <= 100 for s, p in m.state.values()), where
         assert all(1 <= f <= MAX_ATTEMPTS for f in m.fails.values()), (where, m.fails)
         running = [t for t in ids if m.state[t][0] == "running"]
+        if self.active() and self.runner.paused:  # cooling down after a rate limit: nothing downloads
+            assert running == [] and self.runner.current is None, where
         assert set(m.phase) == set(running), (where, m.phase, running)  # phase only for running rows
         assert all(p in PHASES for p in m.phase.values()), where
         assert len(running) <= 1, where
@@ -138,7 +149,7 @@ def test_monkey_state_machine():
         # drain: let the last batch finish
         if monkey.active():
             monkey.runner.stop()
-        for _ in range(10_000):
+        for _ in range(100_000):
             if not monkey.active():
                 break
             await asyncio.sleep(0)

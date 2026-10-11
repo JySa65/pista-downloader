@@ -40,7 +40,7 @@ def test_base_opts_wires_tools_retries_and_logger():
     assert opts["ffmpeg_location"] == "/ff"
     assert opts["js_runtimes"] == {"deno": {"path": "/d/deno"}}
     assert opts["logger"] is logger
-    assert opts["retries"] >= 5 and opts["fragment_retries"] >= 5 and opts["extractor_retries"] >= 3
+    assert opts["retries"] >= 5 and opts["fragment_retries"] >= 5 and opts["extractor_retries"] >= 1
     assert opts["windowsfilenames"] is True and opts["noprogress"] is True
 
 

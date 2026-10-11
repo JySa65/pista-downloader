@@ -17,6 +17,7 @@ from pista.core.loading import load_links, load_message
 from pista.core.downloader import ARCHIVES, download, list_tracks, set_cookie_browser
 from pista.core.settings import browsers_for, load_settings, save_settings
 from pista.core.progress import batch_status
+from pista.core.breaker import BREAKER
 from pista.core.queue import BatchRunner, progress_total, stop_all
 from pista.core.plan import archived_ids, plan_download
 from yt_dlp.version import __version__ as yt_dlp_version
@@ -247,6 +248,12 @@ def index() -> None:
                     .style("width: calc(100% - 32px)")
                 log_box.set_visibility(False)
 
+            # Global YouTube cooldown (429 / bot check): everything pauses; items stay queued.
+            with ui.row().classes("yt-cooldown w-full items-center gap-3 px-6 py-2 no-wrap shrink-0") as cooldown_bar:
+                cooldown_text = ui.label().classes("flex-1 min-w-0 text-[13px]")
+                button("Reanudar ahora", "yt-btn yt-sm", lambda: (BREAKER.resume(), poll()))
+                button("Detener", "yt-danger yt-sm", lambda: stop())
+            cooldown_bar.set_visibility(False)
             with ui.row().classes("yt-panel yt-line-t w-full items-center gap-3 px-6 py-3 no-wrap shrink-0"):
                 with ui.column().classes("flex-1 min-w-0 gap-1.5"):
                     with ui.row().classes("w-full justify-between text-xs yt-muted no-wrap gap-3"):
@@ -368,6 +375,12 @@ def index() -> None:
 
     # ---------- progress polling ----------
     def poll() -> None:
+        cooling = BREAKER.is_open()
+        cooldown_bar.set_visibility(cooling)
+        if cooling:
+            cooldown_text.text = BREAKER.message()
+            if runner is not None:
+                status.text = BREAKER.message()
         if runner is None or runner.current is None:
             return
         # pct/phase are written by the download thread; only this timer touches the UI.

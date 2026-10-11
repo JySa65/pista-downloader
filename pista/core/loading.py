@@ -3,7 +3,8 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
-from .batch import backoff, friendly_error, is_rate_limited, strip_ansi
+from .batch import friendly_error, is_rate_limited, strip_ansi
+from .breaker import BREAKER, Breaker
 from .models import Track
 from .urls import classify
 
@@ -24,8 +25,9 @@ async def _direct(fn, *args):
 
 async def load_links(urls: list[str], list_tracks: Callable, *, limit: int,
                      choose_mix: Callable[[str], Awaitable[str | None]],
-                     run_io: Callable = _direct, sleep: Callable = asyncio.sleep) -> list[LoadOutcome]:
-    outcomes, throttled = [], 0
+                     run_io: Callable = _direct, sleep: Callable = asyncio.sleep,
+                     breaker: Breaker = BREAKER) -> list[LoadOutcome]:
+    outcomes = []
     for url in urls:
         kind = classify(url)
         if kind == "mix":
@@ -33,16 +35,17 @@ async def load_links(urls: list[str], list_tracks: Callable, *, limit: int,
             if kind is None:
                 outcomes.append(LoadOutcome(url, "mix", skipped=True))
                 continue
+        if breaker.is_open():  # YouTube is rate-limiting: don't send more requests; keep the link for later
+            outcomes.append(LoadOutcome(url, kind, error=breaker.message(), raw=breaker.message()))
+            continue
         try:
             tracks = list(await run_io(list_tracks, url, kind, limit) or [])
         except Exception as e:
             raw = strip_ansi(str(e))
             outcomes.append(LoadOutcome(url, kind, error=friendly_error(raw), raw=raw))
-            if is_rate_limited(raw):  # YouTube is throttling: don't hammer the next link
-                throttled += 1
-                await sleep(backoff(throttled))
+            if is_rate_limited(raw):
+                breaker.trip()  # pause ALL YouTube activity (also done by list_tracks itself)
             continue
-        throttled = 0
         if not tracks:
             outcomes.append(LoadOutcome(url, kind, error="El link no tiene pistas disponibles."))
         else:
@@ -66,6 +69,6 @@ def load_message(outcomes: list[LoadOutcome], added: int) -> tuple[str, str]:
     if not parts:
         return ("No se cargó nada.", "info")
     text = " · ".join(parts)
-    text = text if text.endswith(".") else text + "."
+    text = text if text.endswith((".", "…")) else text + "."
     kind = "error" if failed and not added else "warning" if failed else "ok" if added else "info"
     return (text, kind)

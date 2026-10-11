@@ -6,9 +6,14 @@ from collections.abc import Callable
 from pathlib import Path
 
 import yt_dlp
+from yt_dlp.postprocessor.common import PostProcessor
 from yt_dlp.postprocessor.ffmpeg import FFmpegPostProcessor
 from yt_dlp.utils import DownloadCancelled, download_range_func, sanitize_filename
 
+from contextlib import contextmanager
+
+from .batch import is_rate_limited
+from .breaker import GATE
 from .models import Track
 from .plan import video_sizes
 from .progress import phase_for_postprocessor
@@ -84,9 +89,13 @@ def base_opts(ffmpeg: str | None, deno: str | None, logger: object | None, cooki
         "noprogress": True,
         "no_color": True,  # no ANSI codes in messages we log or show
         "windowsfilenames": True,  # portable names on every OS (reserved chars, trailing dots/spaces)
-        "retries": 10,
+        "retries": 10,  # media HTTP retries only cover network errors/5xx: keep resilience for drops
         "fragment_retries": 10,
-        "extractor_retries": 3,
+        "extractor_retries": 1,  # a 429/bot check is handled by the global breaker, not by hammering
+        # Pacing: ~1 s between extraction requests, 2–5 s (random) before each download.
+        "sleep_interval_requests": 1,
+        "sleep_interval": 2,
+        "max_sleep_interval": 5,
         # yt-dlp retries immediately by default; back off instead (1, 2, 4, … s, capped).
         "retry_sleep_functions": {kind: _retry_sleep for kind in ("http", "fragment", "extractor")},
         "allowed_extractors": ALLOWED_EXTRACTORS,
@@ -142,6 +151,34 @@ def _track(entry: dict, playlist: str = "") -> Track:
     )
 
 
+class ReliableThumbnail(PostProcessor):
+    """Keep only YouTube's always-present hqdefault.jpg as the cover candidate.
+
+    yt-dlp otherwise probes thumbnails from the largest down, one request per missing size (7 extra
+    requests measured for an old video). Runs at 'pre_process', before thumbnails are written.
+    """
+
+    def run(self, info):
+        thumbs = info.get("thumbnails") or []
+        keep = [t for t in thumbs if "/hqdefault.jpg" in (t.get("url") or "")]
+        if keep:
+            info["thumbnails"] = keep[:1]
+        return [], info
+
+
+@contextmanager
+def _youtube():
+    """Every YouTube operation: one at a time, none during a cooldown; a rate limit pauses everything."""
+    with GATE.use():
+        try:
+            yield
+        except Exception as e:
+            if is_rate_limited(str(e)):
+                GATE.breaker.trip()
+            raise
+        GATE.breaker.record_success()
+
+
 def list_tracks(url: str, kind: str, mix_limit: int = 50) -> list[Track]:
     """Fast listing via extract_flat. kind: 'video' | 'playlist' | 'mix'."""
     opts = {"skip_download": True}
@@ -151,7 +188,7 @@ def list_tracks(url: str, kind: str, mix_limit: int = 50) -> list[Track]:
         opts["extract_flat"] = "in_playlist"
         if kind == "mix":
             opts["playlistend"] = mix_limit
-    with _ydl(opts) as ydl:
+    with _youtube(), _ydl(opts) as ydl:
         info = ydl.extract_info(url, download=False)
     if info.get("_type") != "playlist":
         return [_track(info)]
@@ -198,7 +235,10 @@ def download(
         "progress_hooks": [hook],
         "postprocessor_hooks": [pp_hook],
     }
-    with _ydl(opts) as ydl:
+    # Each download extracts fresh: stream URLs from the listing were measured to fail with 403 when reused.
+    with _youtube(), _ydl(opts) as ydl:
+        if fmt == "audio":
+            ydl.add_post_processor(ReliableThumbnail(), when="pre_process")
         info = ydl.extract_info(track.url, download=True)
     downloads = (info or {}).get("requested_downloads") or []
     if not downloads:
@@ -269,6 +309,6 @@ def preview_clip(url: str, dest_dir: str | Path, seconds: int = 30) -> Path:
         "outtmpl": str(path.with_suffix(".%(ext)s")),
         "noplaylist": True,
     }
-    with _ydl(opts) as ydl:
+    with _youtube(), _ydl(opts) as ydl:
         ydl.download([video_url(url)])
     return path

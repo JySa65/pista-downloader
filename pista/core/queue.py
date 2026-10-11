@@ -13,7 +13,8 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from .batch import MAX_ATTEMPTS, Result, Summary, backoff, friendly_error, human_size, is_rate_limited, strip_ansi, summarize
+from .batch import MAX_ATTEMPTS, Result, Summary, friendly_error, human_size, is_rate_limited, strip_ansi, summarize
+from .breaker import BREAKER, Breaker, CooldownActive
 from .downloader import Cancelled
 from .models import Track
 from .progress import batch_status, item_progress
@@ -152,7 +153,8 @@ class BatchRunner:
                  run_io: RunIO = _direct, sleep: Callable[[float], Awaitable] = asyncio.sleep,
                  retry_delay: float = 10, log: Callable[[str, int], None] = lambda m, lvl=logging.INFO: None,
                  status: Callable[[str], None] = lambda text: None, fmt_text: str = "",
-                 on_progress: Callable[[], None] = lambda: None, stop_grace: float = 10.0) -> None:
+                 on_progress: Callable[[], None] = lambda: None, stop_grace: float = 10.0,
+                 breaker: Breaker = BREAKER) -> None:
         self.model, self.download = model, download
         self.out, self.quality, self.fmt, self.fmt_text = out, quality, fmt, fmt_text
         self.run_io, self.sleep, self.retry_delay = run_io, sleep, retry_delay
@@ -166,7 +168,8 @@ class BatchRunner:
         self.phase = "downloading"  # idem
         self.position = (0, 0)  # (n, total) for «Descargando n de total»
         self.results: dict[str, Result] = {}
-        self.throttled = 0  # rate-limited items in a row
+        self.breaker = breaker
+        self.paused = False  # waiting for the YouTube cooldown
 
     # --- UI callbacks: a broken one (e.g. window closed) must never abort the batch ---
     def log(self, msg: str, level: int = logging.INFO) -> None:
@@ -218,6 +221,7 @@ class BatchRunner:
             for tid in again:
                 m.set_state(tid, "queued")  # shows «Reintentando (2/3)»
             self.log(f"↻ Reintentando {len(again)} fallida(s) en {self.retry_delay:g} s", logging.WARNING)
+            await self._cooldown()  # the auto-retry never fires during a cooldown
             await self._wait(self.retry_delay, step=0.1)
             await self._run_pending()
 
@@ -260,9 +264,26 @@ class BatchRunner:
                     self.log(f"⚠ {t.title} — no respondió al detener; se abandonó", logging.WARNING)
                     raise Cancelled()
 
+    async def _cooldown(self) -> None:
+        """While YouTube is rate-limiting us, pause everything (items stay queued). Stop or
+        «Reanudar ahora» (breaker.resume) end the wait."""
+        if not self.breaker.is_open() or self.cancel.is_set():
+            return
+        self.paused = True
+        self.log(self.breaker.message(), logging.WARNING)
+        try:
+            while self.breaker.is_open() and not self.cancel.is_set():
+                self.status(self.breaker.message())
+                await self.sleep(min(1.0, self.breaker.remaining()))
+        finally:
+            self.paused = False
+
     async def _run_pending(self) -> None:
         m = self.model
-        while not self.cancel.is_set() and (t := m.next_pending()) is not None:
+        while True:
+            await self._cooldown()
+            if self.cancel.is_set() or (t := m.next_pending()) is None:
+                break
             attempt = m.fails.get(t.id, 0) + 1
             done = sum(r.state != "error" for r in self.results.values())
             pending = sum(1 for x in m.selected() if m.state[x.id][0] == "queued")
@@ -273,7 +294,6 @@ class BatchRunner:
             self.current, self.pct, self.phase = t.id, 0.0, "downloading"
             self.item_cancel.clear()
             m.set_state(t.id, "running", 0.0, phase="downloading")
-            pause = 0.0
 
             def on_progress(pct: float, phase: str = "downloading") -> None:
                 self.pct, self.phase = min(max(pct, 0.0), 100.0), phase
@@ -289,6 +309,8 @@ class BatchRunner:
                 m.set_state(t.id, "done" if path else "skipped")
                 self.log(f"✓ {path} ({human_size(size)})" if path else f"= {t.title} — ya estaba, se omite",
                          logging.INFO)
+            except CooldownActive:  # another activity tripped the breaker: wait, then retry this item
+                m.set_state(t.id, "queued")
             except Cancelled:
                 if t.id in m.state:  # stopped batch; a removed row is just dropped
                     self.results[t.id] = Result(t.title, "stopped")
@@ -296,20 +318,16 @@ class BatchRunner:
             except Exception as e:
                 if t.id not in m.state:  # removed while downloading
                     continue
+                if is_rate_limited(str(e)):  # not the item's fault: pause everything, keep it queued
+                    self.breaker.trip()
+                    m.set_state(t.id, "queued")
+                    self.log(f"↻ {t.title} — {friendly_error(str(e))}", logging.WARNING)
+                    continue
                 m.fails[t.id] = attempt
                 self.results[t.id] = Result(t.title, "error", error=strip_ansi(str(e)))
                 m.errors[t.id] = friendly_error(str(e))
                 m.set_state(t.id, "error")
                 self.log(f"✗ {t.title} (intento {attempt}/{MAX_ATTEMPTS}) — {strip_ansi(str(e))}", logging.ERROR)
-                if is_rate_limited(str(e)):
-                    self.throttled += 1
-                    pause = backoff(self.throttled)
-                else:
-                    self.throttled = 0
             finally:
                 self.current = None  # before any pause: the UI timer must not repaint this row as running
                 self.on_progress()
-            if pause:
-                self.status(f"Demasiadas solicitudes a YouTube: esperando {pause:.0f} s…")
-                self.log(f"Demasiadas solicitudes a YouTube; esperando {pause:.0f} s antes de seguir", logging.WARNING)
-                await self._wait(pause)

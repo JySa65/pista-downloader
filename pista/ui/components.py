@@ -12,7 +12,7 @@ from pista.core.plan import Plan
 from pista.core.progress import row_label
 from pista.core.queue import QueueModel
 from pista.core.system import writable_dir
-from pista.core.updates import fetch_latest, update_status
+from pista.core.updates import check_for_updates
 
 PREVIEW_DIR = writable_dir("previews")  # falls back to a temp folder if the cache can't be written
 app.add_media_files("/media", PREVIEW_DIR)
@@ -372,8 +372,7 @@ def about_dialog(version: str, build: str, icon_svg: str, repo: str) -> None:
 
     async def check_updates() -> None:
         status.text, status_link.visible = "Buscando…", False
-        release = await run.io_bound(fetch_latest)
-        kind, message, url = update_status(release, version)
+        kind, message, url = await run.io_bound(check_for_updates, version)  # one request per session
         status.text = message
         status.classes(replace=f"text-xs yt-upd-{kind}")
         found["url"] = url

@@ -68,13 +68,14 @@ def test_plain_video_and_playlist():
     assert [x.id for x in o1.tracks] == ["BBBBBBBBBBB"] and o2.kind == "playlist" and len(o2.tracks) == 2
 
 
-def test_failure_keeps_link_with_friendly_reason_and_backs_off():
-    sleeps = []
+def test_failure_keeps_link_and_pauses_youtube_for_the_rest():
+    from pista.core.breaker import BREAKER
     f = Fake(fail={MIX: BOT})
-    o1, o2 = load([MIX, VIDEO], f, sleeps=sleeps)
+    o1, o2 = load([MIX, VIDEO], f)
     assert o1.error == "YouTube pide verificar que no eres un robot. Espera unos minutos e inténtalo de nuevo. " + BOT_HINT
-    assert o1.tracks == [] and o2.tracks  # the next link still loads...
-    assert sum(sleeps) >= 15  # ...after a pause, not immediately
+    assert BREAKER.is_open()  # all YouTube activity paused...
+    assert [c[0] for c in f.calls] == [MIX]  # ...so the next link isn't requested at all
+    assert o2.tracks == [] and o2.error.startswith("YouTube limitó las peticiones. Reanudando en")
 
 
 def test_empty_result_is_an_error_not_a_silent_zero():
@@ -89,6 +90,8 @@ def test_load_message_never_says_zero_added():
     bad = load([MIX], Fake(fail={MIX: BOT}))
     text, kind = load_message(bad, added=0)
     assert kind == "error" and text.startswith("1 link no se pudo cargar: YouTube pide verificar")
+    from pista.core.breaker import BREAKER
+    BREAKER.resume()  # the bot check above paused YouTube
     mixed = load([MIX, VIDEO], Fake(fail={MIX: "ERROR: Private video"}))
     text, kind = load_message(mixed, added=1)
     assert kind == "warning" and text == "1 pista(s) añadidas · 1 link no se pudo cargar: El video es privado."
