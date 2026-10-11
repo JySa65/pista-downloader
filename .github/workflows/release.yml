@@ -82,10 +82,12 @@ jobs:
           # The Chocolatey package pins the installer's download URL and checksum for this version.
           choco install innosetup --version $env:INNO_VERSION -y --no-progress --allow-downgrade
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # ISCC.exe's ProductVersion reads 0.0.0.0, so check Chocolatey's record of the installed version instead.
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          $found = (Get-Item $iscc).VersionInfo.ProductVersion
-          Write-Host "ISCC.exe version: $found"
-          if (-not $found.StartsWith($env:INNO_VERSION)) { Write-Error "Expected Inno Setup $env:INNO_VERSION, got $found"; exit 1 }
+          if (-not (Test-Path $iscc)) { Write-Error "ISCC.exe not found at $iscc"; exit 1 }
+          $found = ((choco list innosetup --exact --limit-output) -split '\|')[1]
+          Write-Host "Inno Setup version (choco): $found; ISCC.exe FileVersion: $((Get-Item $iscc).VersionInfo.FileVersion)"
+          if ($found -ne $env:INNO_VERSION) { Write-Error "Expected Inno Setup $env:INNO_VERSION, got $found"; exit 1 }
 
       - name: Build installer
         run: uv run --no-sync python packaging/build.py
