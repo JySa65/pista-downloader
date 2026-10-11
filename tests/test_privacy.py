@@ -41,3 +41,16 @@ def test_issue_url_prefills_form_fields():
     assert f"{u.scheme}://{u.netloc}{u.path}" == f"https://github.com/{REPO}/issues/new"
     q = parse_qs(u.query)
     assert q == {"template": ["bug_report.yml"], "version": ["0.2.1"], "os_version": ["Windows 11 (10.0.22631)"]}
+
+
+def test_issue_url_fields_exist_in_bug_form():
+    import yaml
+    from pathlib import Path
+
+    form = yaml.safe_load((Path(__file__).parent.parent / ".github/ISSUE_TEMPLATE/bug_report.yml").read_text("utf-8"))
+    ids = {item.get("id") for item in form["body"]}
+    q = parse_qs(urlparse(issue_url("1.0.0", "macOS 15")).query)
+    assert set(q) - {"template"} <= ids
+    log_field = next(i for i in form["body"] if i.get("id") == "log")
+    assert log_field["type"] == "textarea" and "render" not in log_field["attributes"]  # allows attachments
+    assert log_field["validations"]["required"] is False

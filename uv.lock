@@ -1894,6 +1894,7 @@ build = [
 ]
 dev = [
     { name = "pytest" },
+    { name = "pyyaml" },
 ]
 
 [package.metadata]
@@ -1907,7 +1908,10 @@ build = [
     { name = "pillow", specifier = ">=12.3.0" },
     { name = "pyinstaller", specifier = ">=6.22.3" },
 ]
-dev = [{ name = "pytest", specifier = ">=9.1.1" }]
+dev = [
+    { name = "pytest", specifier = ">=9.1.1" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+]
 
 [[package]]
 name = "yt-dlp"

@@ -1,0 +1,115 @@
+name: Bug report / Reportar un problema
+description: Something doesn't work as expected. / Algo no funciona como debería.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! / ¡Gracias por reportar!
+        Tip: in the app, **Reportar un problema** (next to «Abrir registro») opens this form with your version and OS already filled in.
+
+  - type: input
+    id: version
+    attributes:
+      label: App version / Versión
+      description: Shown next to the app name in the title bar (e.g. 0.3.0). / Aparece junto al nombre en la barra superior.
+      placeholder: "0.3.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system / Sistema operativo
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS
+        - Linux
+    validations:
+      required: true
+
+  - type: input
+    id: os_version
+    attributes:
+      label: OS version / Versión del sistema
+      description: e.g. "Windows 11 (10.0.22631)", "macOS 15.6", "Ubuntu 24.04".
+    validations:
+      required: false
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How do you run it? / ¿Cómo la ejecutas?
+      options:
+        - Installer from Releases (.exe / .dmg / .AppImage)
+        - From source (uv run main.py)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: link_type
+    attributes:
+      label: Link type / Tipo de link
+      description: |
+        Which kind of link were you using? Please **don't paste private or unlisted links** here; if a public link is needed to reproduce, share one you're comfortable making public.
+        ¿Qué tipo de link usabas? **No pegues links privados u ocultos.**
+      options:
+        - Single video / Video
+        - Playlist / Lista
+        - Mix (list=RD…)
+        - Not related to a link / No aplica
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce / Pasos para reproducir
+      placeholder: |
+        1. Paste a playlist link and press «Cargar»
+        2. Press «Descargar seleccionadas»
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior / Qué esperabas
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior / Qué pasó
+      description: Include the exact error message if there is one. / Incluye el mensaje de error exacto.
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Log file (strongly recommended) / Archivo de registro (muy recomendado)
+      description: |
+        **Optional, but it usually makes the difference.** / **Opcional, pero suele ser clave.**
+
+        How to get it / Cómo obtenerlo: in the app press **Abrir registro**, then **Mostrar en Finder** (macOS) / **Mostrar en el Explorador** (Windows) / **Mostrar en la carpeta** (Linux), and **drag `youtube-download.log` into this box**. GitHub accepts `.log` and `.txt` attachments. You can also paste just the relevant lines.
+
+        Location / Ubicación:
+        - Windows: `%LOCALAPPDATA%\YouTubeDownload\Cache\logs\youtube-download.log`
+        - macOS: `~/Library/Caches/YouTubeDownload/logs/youtube-download.log`
+        - Linux: `~/.cache/YouTubeDownload/logs/youtube-download.log` (or `$XDG_CACHE_HOME/...`)
+
+        Privacy / Privacidad: your home folder is already replaced with `~` in the log, so it doesn't show your user name. Links you downloaded **are** visible: delete any private links before attaching. / Tu carpeta personal ya aparece como `~`. Los links sí se ven: borra los privados antes de adjuntar.
+    validations:
+      required: false
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots / Capturas
+      description: Drag images here if they help. / Arrastra imágenes si ayudan.
+    validations:
+      required: false

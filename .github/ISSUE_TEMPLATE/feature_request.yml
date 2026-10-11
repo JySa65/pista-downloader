@@ -1,0 +1,31 @@
+name: Feature request / Sugerencia
+description: Suggest an improvement or a new feature. / Propón una mejora o función nueva.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / Problema
+      description: What are you trying to do, and what gets in the way? / ¿Qué intentas hacer y qué te lo impide?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution / Solución propuesta
+      description: How should it work? Mockups or screenshots welcome. / ¿Cómo debería funcionar?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered / Alternativas
+    validations:
+      required: false
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues first. / Busqué si ya existía.
+          required: true

@@ -1,0 +1,25 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Python dependencies from uv.lock. yt-dlp is excluded: .github/workflows/update-yt-dlp.yml bumps it weekly.
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+      include: scope
+    ignore:
+      - dependency-name: yt-dlp
+    groups:
+      python-minor-and-patch:
+        update-types: [minor, patch]
