@@ -84,3 +84,16 @@ def status_label(state: str, pct: float, failed_attempts: int) -> str:
     if state == "queued" and failed_attempts:
         return f"Reintentando ({failed_attempts + 1}/{MAX_ATTEMPTS})"
     return _LABELS[state]
+
+
+_RATE_LIMIT = re.compile(r"HTTP Error 429|Too Many Requests|confirm you.?re not a bot|rate.?limit", re.IGNORECASE)
+
+
+def is_rate_limited(message: str) -> bool:
+    """YouTube is throttling us: keep going, but slowly."""
+    return bool(_RATE_LIMIT.search(message or ""))
+
+
+def backoff(n: int, base: float = 15.0, cap: float = 300.0) -> float:
+    """Seconds to wait after the n-th rate-limited item in a row (n >= 1): 15, 30, 60, … up to 5 min."""
+    return min(cap, base * 2 ** (n - 1))

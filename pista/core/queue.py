@@ -12,7 +12,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from .batch import MAX_ATTEMPTS, Result, Summary, human_size, short_error, summarize
+from .batch import MAX_ATTEMPTS, Result, Summary, backoff, human_size, is_rate_limited, short_error, summarize
 from .downloader import Cancelled
 from .models import Track
 
@@ -147,6 +147,7 @@ class BatchRunner:
         self.current: str | None = None
         self.pct = 0.0  # written by the download thread, read by the UI timer
         self.results: dict[str, Result] = {}
+        self.throttled = 0  # rate-limited items in a row
 
     # --- controls ---
     def stop(self) -> None:
@@ -172,10 +173,7 @@ class BatchRunner:
             for tid in again:
                 m.set_state(tid, "queued")  # shows «Reintentando (2/3)»
             self.log(f"↻ Reintentando {len(again)} fallida(s) en {self.retry_delay:g} s", logging.WARNING)
-            for _ in range(int(self.retry_delay * 10)):
-                if self.cancel.is_set():
-                    break
-                await self.sleep(0.1)
+            await self._wait(self.retry_delay, step=0.1)
             await self._run_pending()
 
         stopped = self.cancel.is_set()
@@ -188,6 +186,13 @@ class BatchRunner:
         self.status("Detenido." if stopped else "Terminado.")
         return summarize(list(self.results.values()), time.monotonic() - started,
                          ended_at=time.strftime("%H:%M"), processed=len(self.results))
+
+    async def _wait(self, seconds: float, step: float = 1.0) -> None:
+        """Sleep in small steps so Stop interrupts the wait."""
+        left = seconds
+        while left > 0 and not self.cancel.is_set():
+            await self.sleep(min(step, left))
+            left -= step
 
     async def _run_pending(self) -> None:
         m = self.model
@@ -229,6 +234,14 @@ class BatchRunner:
                 m.errors[t.id] = short_error(str(e))
                 m.set_state(t.id, "error")
                 self.log(f"✗ {t.title} (intento {attempt}/{MAX_ATTEMPTS}) — {e}", logging.ERROR)
+                if is_rate_limited(str(e)):
+                    self.throttled += 1
+                    wait = backoff(self.throttled)
+                    self.status(f"Demasiadas solicitudes a YouTube: esperando {wait:.0f} s…")
+                    self.log(f"Demasiadas solicitudes a YouTube; esperando {wait:.0f} s antes de seguir", logging.WARNING)
+                    await self._wait(wait)
+                else:
+                    self.throttled = 0
             finally:
                 self.current = None
                 self.on_progress()

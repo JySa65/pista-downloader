@@ -63,6 +63,10 @@ class _Logger:
         log.error(msg)
 
 
+def _retry_sleep(attempt: int) -> float:
+    return min(60.0, 2.0 ** attempt)
+
+
 def base_opts(ffmpeg: str | None, deno: str | None, logger: object | None) -> dict:
     """Options shared by every yt-dlp call: bundled tools, retries, quiet console, portable names."""
     opts = {
@@ -72,6 +76,8 @@ def base_opts(ffmpeg: str | None, deno: str | None, logger: object | None) -> di
         "retries": 10,
         "fragment_retries": 10,
         "extractor_retries": 3,
+        # yt-dlp retries immediately by default; back off instead (1, 2, 4, … s, capped).
+        "retry_sleep_functions": {kind: _retry_sleep for kind in ("http", "fragment", "extractor")},
         "allowed_extractors": ALLOWED_EXTRACTORS,
     }
     if ffmpeg:
