@@ -204,6 +204,12 @@ button:disabled { opacity: .45; cursor: default; pointer-events: none; }
 .yt-track { height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; margin-top: 3px; }
 .yt-track.big { height: 4px; margin: 0; }
 .yt-fill { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+/* Indeterminate bar for conversion (ffmpeg gives no percentage). */
+.yt-fill.busy { width: 100% !important; opacity: .55;
+  background: repeating-linear-gradient(-45deg, var(--accent) 0 8px, var(--accent-soft) 8px 16px);
+  background-size: 22.6px 22.6px; animation: yt-busy .8s linear infinite; }
+@keyframes yt-busy { to { background-position: 22.6px 0; } }
+@media (prefers-reduced-motion: reduce) { .yt-fill.busy { animation: none; } }
 .yt-fill.ok { background: var(--ok-bar); } .yt-fill.err { background: var(--danger); }
 .yt-pill { justify-self: end; font-size: 11px; font-weight: 500; padding: 3px 8px; border-radius: 999px;
   background: var(--btn); color: var(--muted); white-space: nowrap; }

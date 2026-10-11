@@ -4,11 +4,12 @@ from pathlib import Path
 
 from nicegui import app, run, ui
 
-from pista.core.batch import Summary, human_size, human_time, status_label
+from pista.core.batch import Summary, human_size, human_time
 from pista.core.downloader import preview_clip
 from pista.core.links import is_release_url, is_video_url, open_url
 from pista.core.models import Track
 from pista.core.plan import Plan
+from pista.core.progress import row_label
 from pista.core.queue import QueueModel
 from pista.core.system import writable_dir
 from pista.core.updates import fetch_latest, update_status
@@ -168,10 +169,14 @@ class Queue(QueueModel):
         pill_cls, bar_cls = PILL[state]
         if state == "queued" and self.fails.get(track_id):
             pill_cls = "amb"
-        width = 100 if state in ("done", "skipped") else pct
-        row["fill"].classes(replace=f"yt-fill {bar_cls}").style(f"width: {width:.0f}%")
+        phase = self.phase.get(track_id)
+        converting = state == "running" and phase in ("converting", "merging")
+        width = 100 if state in ("done", "skipped") or converting else pct
+        # Conversion has no measurable progress: an animated (indeterminate) bar, not a made-up number.
+        row["fill"].classes(replace=f"yt-fill {bar_cls}" + (" busy" if converting else "")).style(f"width: {width:.0f}%")
         row["pill"].classes(replace=f"yt-pill {pill_cls}")
-        row["pill_text"].text = status_label(state, pct, self.fails.get(track_id, 0))
+        row["pill_text"].text = row_label(state, pct, self.fails.get(track_id, 0), phase)
+        attrs(row["pill"], title="Uniendo audio y video…" if phase == "merging" and state == "running" else "")
         error = state == "error"
         row["el"].classes(replace="yt-row" + (" err" if error else "") + ("" if self.checked.get(track_id) else " off"))
         row["reason"].text = self.errors.get(track_id, "") if error else ""

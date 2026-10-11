@@ -11,6 +11,7 @@ from yt_dlp.utils import DownloadError
 
 from pista.core.batch import MAX_ATTEMPTS
 from pista.core.downloader import Cancelled
+from pista.core.progress import PHASES
 from pista.core.queue import STATES, BatchRunner, QueueModel, progress_total
 
 from .conftest import track
@@ -35,7 +36,9 @@ class Monkey:
         return fn(*args)
 
     def download(self, t, out, q, sub, on_progress, cancel, fmt):
-        on_progress(self.rng.uniform(0, 100), "")
+        on_progress(self.rng.uniform(0, 100), "downloading")
+        if self.rng.random() < 0.3:
+            on_progress(0.0, self.rng.choice(["converting", "merging"]))
         roll = self.rng.random()
         if cancel.is_set() and roll < 0.8:
             raise Cancelled()
@@ -70,7 +73,7 @@ class Monkey:
         r = self.rng
         ids = [t.id for t in self.m.tracks]
         action = r.choice(["add", "add", "toggle", "all", "remove", "clear", "download", "download",
-                           "stop", "retry", "tick", "tick", "tick"])
+                           "stop", "retry", "tick", "tick", "tick", "poll", "poll"])
         if action == "add":
             self.m.add_tracks([track(r.randrange(40)) for _ in range(r.randint(1, 3))], new=self.active())
         elif action == "toggle" and ids:
@@ -86,6 +89,8 @@ class Monkey:
             self.m.clear_finished(keep=self.runner.current if self.runner and self.active() else None)
         elif action == "download":
             self.start()
+        elif action == "poll" and self.active() and self.runner.current:  # the UI timer
+            self.m.set_state(self.runner.current, "running", self.runner.pct, phase=self.runner.phase)
         elif action == "stop" and self.active():
             self.runner.stop()
         elif action == "retry":
@@ -108,6 +113,8 @@ class Monkey:
         assert all(s in STATES and 0 <= p <= 100 for s, p in m.state.values()), where
         assert all(1 <= f <= MAX_ATTEMPTS for f in m.fails.values()), (where, m.fails)
         running = [t for t in ids if m.state[t][0] == "running"]
+        assert set(m.phase) == set(running), (where, m.phase, running)  # phase only for running rows
+        assert all(p in PHASES for p in m.phase.values()), where
         assert len(running) <= 1, where
         if not self.active():
             assert running == [], f"{where}: row stuck in «running» with no batch"

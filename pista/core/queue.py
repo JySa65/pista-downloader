@@ -16,6 +16,7 @@ from typing import Any
 from .batch import MAX_ATTEMPTS, Result, Summary, backoff, friendly_error, human_size, is_rate_limited, strip_ansi, summarize
 from .downloader import Cancelled
 from .models import Track
+from .progress import batch_status, item_progress
 
 STATES = ("queued", "running", "done", "skipped", "error", "stopped")
 FINISHED = ("done", "skipped", "error", "stopped")
@@ -30,6 +31,7 @@ class QueueModel:
         self.fails: dict[str, int] = {}  # failed attempts per track
         self.sizes: dict[str, int] = {}
         self.new: set[str] = set()
+        self.phase: dict[str, str] = {}  # only for «running» rows: downloading | converting | merging
 
     # --- hooks for the UI ---
     def _changed(self) -> None:
@@ -75,7 +77,7 @@ class QueueModel:
 
     def _drop(self, ids: set[str]) -> None:
         self.tracks = [t for t in self.tracks if t.id not in ids]
-        for d in (self.checked, self.state, self.errors, self.fails, self.sizes):
+        for d in (self.checked, self.state, self.errors, self.fails, self.sizes, self.phase):
             for k in ids:
                 d.pop(k, None)
         self.new -= ids
@@ -92,12 +94,16 @@ class QueueModel:
     def selected(self) -> list[Track]:
         return [t for t in self.tracks if self.checked.get(t.id)]
 
-    def set_state(self, track_id: str, state: str, pct: float = 0.0) -> None:
+    def set_state(self, track_id: str, state: str, pct: float = 0.0, phase: str | None = None) -> None:
         if state not in STATES:
             raise ValueError(f"unknown state: {state}")
         if track_id not in self.state:
             return  # removed meanwhile
         self.state[track_id] = (state, pct)
+        if state == "running":
+            self.phase[track_id] = phase or self.phase.get(track_id) or "downloading"
+        else:
+            self.phase.pop(track_id, None)
         self._state_changed(track_id)
 
     def title(self, track_id: str) -> str:
@@ -111,7 +117,7 @@ def progress_total(model: QueueModel) -> float:
     sel = [t.id for t in model.selected()]
     if not sel:
         return 0.0
-    return sum(100 if model.state[i][0] in ("done", "skipped", "error") else model.state[i][1] for i in sel) / len(sel)
+    return sum(item_progress(model.state[i][0], model.phase.get(i), model.state[i][1]) for i in sel) / len(sel)
 
 
 class _Either:
@@ -157,6 +163,8 @@ class BatchRunner:
         self.item_cancel = threading.Event()
         self.current: str | None = None
         self.pct = 0.0  # written by the download thread, read by the UI timer
+        self.phase = "downloading"  # idem
+        self.position = (0, 0)  # (n, total) for «Descargando n de total»
         self.results: dict[str, Result] = {}
         self.throttled = 0  # rate-limited items in a row
 
@@ -258,16 +266,17 @@ class BatchRunner:
             attempt = m.fails.get(t.id, 0) + 1
             done = sum(r.state != "error" for r in self.results.values())
             pending = sum(1 for x in m.selected() if m.state[x.id][0] == "queued")
-            self.status(f"Descargando {done + 1} de {done + pending} · {self.fmt_text}")
+            self.position = (done + 1, done + pending)
+            self.status(batch_status("downloading", *self.position, self.fmt_text))
             self.log(f"… {t.title} — descargando" + (f" (intento {attempt}/{MAX_ATTEMPTS})" if attempt > 1 else ""),
                      logging.INFO)
-            self.current, self.pct = t.id, 0.0
+            self.current, self.pct, self.phase = t.id, 0.0, "downloading"
             self.item_cancel.clear()
-            m.set_state(t.id, "running", 0.0)
+            m.set_state(t.id, "running", 0.0, phase="downloading")
             pause = 0.0
 
-            def on_progress(pct: float, _msg: str) -> None:
-                self.pct = min(pct, 99.0)
+            def on_progress(pct: float, phase: str = "downloading") -> None:
+                self.pct, self.phase = min(max(pct, 0.0), 100.0), phase
 
             try:
                 path = await self._download(t, on_progress)

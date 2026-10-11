@@ -15,7 +15,8 @@ from pista.core.applog import setup_logging
 from pista.core.batch import MAX_ATTEMPTS, human_size, human_time, short_error
 from pista.core.loading import load_links, load_message
 from pista.core.downloader import ARCHIVES, download, list_tracks
-from pista.core.queue import BatchRunner, stop_all
+from pista.core.progress import batch_status
+from pista.core.queue import BatchRunner, progress_total, stop_all
 from pista.core.plan import archived_ids, plan_download
 from yt_dlp.version import __version__ as yt_dlp_version
 
@@ -345,13 +346,13 @@ def index() -> None:
     def poll() -> None:
         if runner is None or runner.current is None:
             return
-        queue.set_state(runner.current, "running", runner.pct)  # pct is written by the download thread
+        # pct/phase are written by the download thread; only this timer touches the UI.
+        queue.set_state(runner.current, "running", runner.pct, phase=runner.phase)
+        status.text = batch_status(runner.phase, *runner.position, format_text())
         set_total()
 
     def set_total() -> None:
-        sel = [t.id for t in queue.selected()]
-        pct = sum(100 if queue.state[i][0] in ("done", "skipped", "error") else queue.state[i][1]
-                  for i in sel) / len(sel) if sel else 0
+        pct = progress_total(queue)  # download/conversion weighted per item
         total_label.text = f"{pct:.0f}%"
         total_fill.style(f"width: {pct:.0f}%")
 

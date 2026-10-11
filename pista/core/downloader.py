@@ -11,6 +11,7 @@ from yt_dlp.utils import DownloadCancelled, download_range_func, sanitize_filena
 
 from .models import Track
 from .plan import video_sizes
+from .progress import phase_for_postprocessor
 from .system import find_deno, find_ffmpeg
 from .urls import is_youtube, video_id, video_url
 
@@ -152,7 +153,7 @@ def download(
     outdir: str | Path,
     quality: str = "192",
     subfolder: str = "",
-    on_progress: Callable[[float, str], None] = lambda pct, msg: None,
+    on_progress: Callable[[float, str], None] = lambda pct, phase: None,
     cancel_event: threading.Event | None = None,
     fmt: str = "audio",
 ) -> str | None:
@@ -165,10 +166,15 @@ def download(
             raise Cancelled()
         if d.get("status") == "downloading":
             total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
-            pct = d.get("downloaded_bytes", 0) / total * 100 if total else 0.0
-            on_progress(pct, f"Descargando… {pct:0.1f}%")
+            on_progress(d.get("downloaded_bytes", 0) / total * 100 if total else 0.0, "downloading")
         elif d.get("status") == "finished":
-            on_progress(95.0, "Procesando…")
+            on_progress(100.0, "downloading")
+
+    def pp_hook(d):
+        # ffmpeg conversion only reports started/finished: the UI shows it as indeterminate.
+        phase = phase_for_postprocessor(d.get("postprocessor", ""))
+        if phase and d.get("status") == "started":
+            on_progress(0.0, phase)
 
     target = target_dir(outdir, subfolder)
     repair_archive(Path(outdir) / ARCHIVES[fmt])
@@ -178,13 +184,13 @@ def download(
         "outtmpl": str(target / f"%(title).{MAX_NAME_BYTES}B.%(ext)s"),  # .NB = truncate to N bytes
         "download_archive": str(Path(outdir) / ARCHIVES[fmt]),
         "progress_hooks": [hook],
+        "postprocessor_hooks": [pp_hook],
     }
     with _ydl(opts) as ydl:
         info = ydl.extract_info(track.url, download=True)
     downloads = (info or {}).get("requested_downloads") or []
     if not downloads:
         return None  # skipped: already in download archive
-    on_progress(100.0, "Listo")
     return downloads[0]["filepath"]
 
 
