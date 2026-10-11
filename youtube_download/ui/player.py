@@ -1,4 +1,5 @@
-"""'Reproductor' tab: browse MP3s in a folder and play them."""
+"""'Reproductor' tab: browse MP3/MP4 files in a folder and play them (cover art or video)."""
+import base64
 import random
 from collections.abc import Callable
 from pathlib import Path
@@ -6,7 +7,7 @@ from urllib.parse import quote
 
 from nicegui import app, ui
 
-from youtube_download.core.library import scan, split_artist
+from youtube_download.core.library import cover_bytes, scan, split_artist
 from youtube_download.core.system import default_outdir
 
 from .components import button, hhmmss
@@ -33,6 +34,7 @@ class Player:
         self.playing = False
         self.duration = 0.0
         self.shuffle = self.repeat = False
+        self.video: ui.video | None = None  # set while an MP4 plays in the cover area
 
         with ui.element("div").classes("flex-1 min-h-0 w-full grid") \
                 .style("grid-template-columns: minmax(0, 1fr) 380px; grid-template-rows: minmax(0, 1fr)"):
@@ -55,13 +57,14 @@ class Player:
                     self.render()
             with ui.column().classes("yt-panel yt-line-l p-7 gap-5 min-h-0 overflow-auto no-wrap"):
                 ui.label("Reproduciendo").classes("yt-label")
-                ui.label("portada").classes("yt-cover w-full")
+                self.cover = ui.element("div").classes("yt-cover w-full overflow-hidden")
+                self.show_placeholder()
                 with ui.column().classes("gap-1 w-full"):
                     self.title = ui.label("—").classes("text-lg font-semibold leading-snug")
                     self.artist = ui.label().classes("text-sm yt-muted")
                 with ui.column().classes("gap-1 w-full"):
                     self.seek = ui.slider(min=0, max=1000, value=0).props("dense color=primary")
-                    self.seek.on("change", lambda e: self.duration and self.audio.seek(e.args / 1000 * self.duration))
+                    self.seek.on("change", lambda e: self.duration and self.media().seek(e.args / 1000 * self.duration))
                     with ui.row().classes("w-full justify-between mono text-[11px] yt-muted"):
                         self.pos_label = ui.label("0:00")
                         self.dur_label = ui.label("0:00")
@@ -81,12 +84,36 @@ class Player:
                 self.volume = ui.slider(min=0, max=100, value=70, on_change=self.set_volume) \
                     .props("dense color=primary").classes("w-[120px]")
 
-        self.audio = ui.audio("", controls=False, autoplay=True).classes("hidden")
-        self.audio.on("timeupdate", self.on_time, js_handler="(e) => emit(e.target.currentTime, e.target.duration)",
-                      throttle=0.5)
-        self.audio.on("ended", self.on_ended)
-        self.audio.on("play", lambda: self.set_playing(True))
-        self.audio.on("pause", lambda: self.set_playing(False))
+        self.audio = self.wire(ui.audio("", controls=False, autoplay=True).classes("hidden"))
+
+    def wire(self, el):
+        """Same transport events for the hidden <audio> and the MP4 <video>."""
+        el.on("timeupdate", self.on_time, js_handler="(e) => emit(e.target.currentTime, e.target.duration)",
+              throttle=0.5)
+        el.on("ended", self.on_ended)
+        el.on("play", lambda: self.set_playing(True))
+        el.on("pause", lambda: self.set_playing(False))
+        return el
+
+    def media(self):
+        return self.video or self.audio
+
+    def show_placeholder(self) -> None:
+        self.cover.clear()
+        with self.cover:
+            ui.label("portada")
+
+    def show_cover(self, f: Path) -> None:
+        """Cover embedded in the MP3 at download time; placeholder when there is none."""
+        found = cover_bytes(f) if f.suffix.lower() == ".mp3" else None
+        if not found:
+            self.show_placeholder()
+            return
+        data, mime = found
+        self.cover.clear()
+        with self.cover:
+            ui.element("img").props(f'src="data:{mime};base64,{base64.b64encode(data).decode()}" alt="portada"') \
+                .classes("w-full h-full object-cover")
 
     # --- library ---
     def root(self) -> Path:
@@ -100,7 +127,7 @@ class Player:
         if self.cur is not None and self.cur >= len(self.files):
             self.cur = None
         self.folder_label.text = str(self.root())
-        self.count.text = f"{len(self.files)} canciones"
+        self.count.text = f"{len(self.files)} archivos"
         self.build_menu()
         self.render.refresh()
 
@@ -134,7 +161,7 @@ class Player:
     def render(self) -> None:
         q = (self.query.value or "").lower() if hasattr(self, "query") else ""
         if not self.files:
-            ui.label("No hay MP3 en esta carpeta.").classes("text-[13px] yt-subtle self-center py-10")
+            ui.label("No hay MP3 ni MP4 en esta carpeta.").classes("text-[13px] yt-subtle self-center py-10")
         for i, f in enumerate(self.files):
             artist, title = split_artist(f.stem)
             if q and q not in f.stem.lower():
@@ -155,7 +182,19 @@ class Player:
         artist, title = split_artist(f.stem)
         self.title.text, self.artist.text = title, artist or f.parent.name
         self.duration = 0.0
-        self.audio.set_source(media_url(self.root(), f))
+        src = media_url(self.root(), f)
+        if f.suffix.lower() == ".mp4":
+            self.audio.pause()
+            self.cover.clear()
+            with self.cover:  # native controls include fullscreen
+                self.video = self.wire(ui.video(src, controls=True, autoplay=True)
+                                       .classes("w-full h-full bg-black").style("object-fit: contain"))
+        else:
+            if self.video is not None:
+                self.video.pause()
+                self.video = None
+            self.show_cover(f)
+            self.audio.set_source(src)
         self.set_volume()
         self.render.refresh()
 
@@ -180,7 +219,7 @@ class Player:
 
     def prev(self) -> None:
         if self.seek.value > 0 and self.duration and self.seek.value / 1000 * self.duration > 3:
-            self.audio.seek(0)
+            self.media().seek(0)
         else:
             self.step(-1)
 
@@ -188,9 +227,9 @@ class Player:
         if self.cur is None:
             self.step(1)
         elif self.playing:
-            self.audio.pause()
+            self.media().pause()
         else:
-            self.audio.play()
+            self.media().play()
 
     def toggle(self, name: str) -> None:
         setattr(self, name, not getattr(self, name))
@@ -203,7 +242,8 @@ class Player:
         self.render.refresh()
 
     def set_volume(self) -> None:
-        ui.run_javascript(f"getHtmlElement({self.audio.id}).volume = {self.volume.value / 100}")
+        el = self.media()
+        ui.run_javascript(f"const m = getHtmlElement({el.id}); if (m) m.volume = {self.volume.value / 100}")
 
     def on_time(self, e) -> None:
         pos, dur = e.args
@@ -217,7 +257,7 @@ class Player:
 
     def on_ended(self) -> None:
         if self.repeat:
-            self.audio.seek(0)
-            self.audio.play()
+            self.media().seek(0)
+            self.media().play()
         else:
             self.step(1)
