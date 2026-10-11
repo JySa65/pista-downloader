@@ -9,6 +9,7 @@ from yt_dlp.postprocessor.ffmpeg import FFmpegPostProcessor
 from yt_dlp.utils import DownloadCancelled, download_range_func, sanitize_filename
 
 from .models import Track
+from .plan import video_sizes
 from .system import find_deno, find_ffmpeg
 from .urls import video_id, video_url
 
@@ -103,6 +104,7 @@ def _track(entry: dict, playlist: str = "") -> Track:
         url=f"https://www.youtube.com/watch?v={vid}" if vid else entry.get("url", ""),
         thumbnail=_thumbnail(entry),
         playlist=playlist,
+        video_sizes=video_sizes(entry.get("formats") or []),  # only full (non-flat) extraction has formats
     )
 
 

@@ -22,6 +22,8 @@ class Summary:
     elapsed: float
     failures: list[tuple[str, str]] = field(default_factory=list)  # (title, short reason)
     first_new: str | None = None  # first newly downloaded file, for "Ir al reproductor"
+    ended_at: str = ""  # HH:MM
+    subtitle: str = ""
 
 
 def short_error(msg: str, limit: int = 120) -> str:
@@ -33,8 +35,12 @@ def short_error(msg: str, limit: int = 120) -> str:
     return line if len(line) <= limit else line[: limit - 1] + "…"
 
 
-def summarize(results: list[Result], elapsed: float) -> Summary:
+def summarize(results: list[Result], elapsed: float, ended_at: str = "", processed: int | None = None) -> Summary:
     count = lambda state: sum(r.state == state for r in results)  # noqa: E731
+    n = len(results) if processed is None else processed
+    subtitle = (f"Se detuvo a las {ended_at}. Las pendientes quedaron como «Detenida»; "
+                "puedes reanudarlas con «Descargar seleccionadas».") if count("stopped") \
+        else f"Finalizó a las {ended_at} · {n} pistas procesadas"
     return Summary(
         done=count("done"),
         skipped=count("skipped"),
@@ -44,6 +50,8 @@ def summarize(results: list[Result], elapsed: float) -> Summary:
         elapsed=elapsed,
         failures=[(r.title, short_error(r.error)) for r in results if r.state == "error"],
         first_new=next((r.path for r in results if r.state == "done" and r.path), None),
+        ended_at=ended_at,
+        subtitle=subtitle,
     )
 
 

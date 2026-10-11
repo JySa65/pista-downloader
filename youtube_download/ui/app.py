@@ -14,7 +14,8 @@ from nicegui import app, native, run, ui
 from youtube_download import version
 from youtube_download.core.applog import setup_logging
 from youtube_download.core.batch import MAX_ATTEMPTS, Result, human_size, human_time, short_error, summarize
-from youtube_download.core.downloader import Cancelled, download, list_tracks
+from youtube_download.core.downloader import ARCHIVES, Cancelled, download, list_tracks
+from youtube_download.core.plan import archived_ids, plan_download
 from yt_dlp.version import __version__ as yt_dlp_version
 
 from youtube_download.core.system import (
@@ -23,7 +24,7 @@ from youtube_download.core.system import (
 from youtube_download.core.urls import classify
 
 from . import theme
-from .components import Queue, ask_mix, button, log_class, log_file_dialog, summary_dialog
+from .components import Queue, ask_mix, button, close_dialogs, confirm_dialog, log_class, log_file_dialog, summary_dialog
 from .player import Player
 
 QUALITIES = {"audio": ["128", "160", "192", "256", "320"], "video": ["360p", "480p", "720p", "1080p", "4K"]}
@@ -71,6 +72,7 @@ def index() -> None:
     # Written from worker threads, read by the timer on the event loop.
     progress: dict = {"track": None, "pct": 0.0}
     cancel = threading.Event()
+    item_cancel = threading.Event()  # cancels only the current item (row «×»), not the batch
     log_lines: list[str] = []
 
     def log(msg: str, level: int = logging.INFO) -> None:
@@ -190,11 +192,12 @@ def index() -> None:
                     button("Limpiar cola", "yt-btn yt-sm", lambda: clear_queue()).props(
                         'title="Quita las terminadas, las fallidas y las desmarcadas"')
             with ui.element("div").classes("yt-qhead shrink-0"):
-                for h, cls in (("", ""), ("", ""), ("Título", ""), ("Estado", "text-center"), ("", "")):
+                for h, cls in (("", ""), ("", ""), ("Título", ""), ("Estado", "text-center"), ("", ""), ("", "")):
                     ui.label(h).classes(cls)
             with ui.column().classes("flex-1 min-h-0 overflow-auto px-4 pb-2 gap-1 w-full no-wrap"):
                 queue = Queue(on_change=lambda: update_counter(), fmt_label=lambda: fmt_short())
                 queue.on_retry = lambda track_id: retry([track_id])
+                queue.on_remove = lambda track_id: remove_item(track_id)
 
             # Registro: last line; «Expandir» shows full lines; «Abrir registro» shows the whole .log file.
             with ui.column().classes("yt-panel yt-line-t w-full gap-0 shrink-0 no-wrap"):
@@ -216,11 +219,11 @@ def index() -> None:
                         total_label = ui.label("0%").classes("mono")
                     with ui.element("div").classes("yt-track big w-full"):
                         total_fill = ui.element("div").classes("yt-fill")
-                stop_btn = button("Detener", "yt-danger", cancel.set)
+                stop_btn = button("Detener", "yt-danger", lambda: stop())
                 stop_btn.set_visibility(False)
                 summary_btn = button("Ver resumen", "yt-btn h-[38px] px-3.5", lambda: summary_dialog(**last_summary))
                 summary_btn.set_visibility(False)
-                dl_btn = button("Descargar seleccionadas", "yt-primary h-[38px]", lambda: start_download())
+                dl_btn = button("Descargar seleccionadas", "yt-primary h-[38px]", lambda: confirm_and_start())
 
     # ---------- player tab ----------
     player_tab = ui.column().classes("flex-1 min-h-0 w-full gap-0 no-wrap")
@@ -333,11 +336,7 @@ def index() -> None:
     def set_busy(value: bool) -> None:
         nonlocal busy
         busy = value
-        if value:
-            dl_btn.props("disabled")
-        else:
-            dl_btn.props(remove="disabled")
-        stop_btn.set_visibility(value)
+        stop_btn.set_visibility(value)  # «Descargar seleccionadas» stays enabled: it appends to the batch
         running_notice.set_visibility(value)
         load_label.text = "Cargar a la cola" if value else "Cargar"
         summary_btn.set_visibility(not value and bool(last_summary))
@@ -373,6 +372,18 @@ def index() -> None:
             status.text = f"{len(queue.tracks)} pista(s) en la cola."
             set_total()
 
+    def stop() -> None:
+        cancel.set()
+        close_dialogs()  # preview, log file and Mix question
+
+    def remove_item(track_id: str) -> None:
+        if progress["track"] == track_id:
+            item_cancel.set()  # the worker drops it when the download aborts
+        track = queue.remove(track_id)
+        if track:
+            log(f"− {track.title} — quitada de la cola")
+        set_total()
+
     def clear_queue() -> None:
         removed = queue.clear_finished(keep=progress["track"])
         log(f"Cola limpiada: {removed} quitadas.")
@@ -392,17 +403,39 @@ def index() -> None:
         if not busy:
             asyncio.create_task(start_download())  # otherwise the running batch picks them up
 
-    async def start_download() -> None:
-        if busy:
-            return
-        if not queue.selected():
-            ui.notify("No hay pistas seleccionadas.", type="warning")
+    def make_plan():
+        out = Path((outdir.value or "").strip()).expanduser()
+        items = [(t, queue.state[t.id][0], bool(queue.checked.get(t.id))) for t in queue.tracks]
+        return plan_download(items, fmt, quality, archived_ids(out / ARCHIVES[fmt]), busy)
+
+    async def confirm_and_start() -> None:
+        if not queue.tracks:
+            ui.notify("La cola está vacía.", type="warning")
             return
         if not has_ffmpeg():
             ui.notify(FFMPEG_MISSING, type="negative", multi_line=True)
             return
         if not (outdir.value or "").strip():
             ui.notify("Indica una carpeta de salida.", type="warning")
+            return
+        plan = await confirm_dialog(make_plan, lambda: outdir.value, change_outdir)
+        if plan is None:
+            return
+        for tid in plan.skip:  # already in the archive for this format: no network needed
+            if tid in queue.state:
+                queue.set_state(tid, "skipped")
+        for tid in plan.pending:
+            if tid in queue.state and queue.state[tid][0] == "stopped":
+                queue.set_state(tid, "queued")
+        if busy:
+            log(f"{plan.count} pista(s) añadidas a la descarga en curso.")
+        else:
+            await start_download()
+
+    async def start_download() -> None:
+        if busy:
+            return
+        if not has_ffmpeg() or not (outdir.value or "").strip():
             return
         out = str(Path(outdir.value.strip()).expanduser())
         cancel.clear()
@@ -414,6 +447,13 @@ def index() -> None:
         results: dict[str, Result] = {}
         log(f"▶ Descargando en {out} · {format_text()}")
 
+        class Either:  # what download() polls: the batch's Detener or this row's «×»
+            @staticmethod
+            def is_set() -> bool:
+                return cancel.is_set() or item_cancel.is_set()
+
+        either = Either()
+
         async def run_pending() -> None:
             while not cancel.is_set() and (t := queue.next_pending()) is not None:
                 attempt = queue.fails.get(t.id, 0) + 1
@@ -422,22 +462,28 @@ def index() -> None:
                 status.text = f"Descargando {done + 1} de {done + pending} · {format_text()}"
                 log(f"… {t.title} — descargando" + (f" (intento {attempt}/{MAX_ATTEMPTS})" if attempt > 1 else ""))
                 progress.update(track=t.id, pct=0.0)
+                item_cancel.clear()
 
                 def on_progress(pct: float, _msg: str) -> None:
                     progress["pct"] = min(pct, 99.0)
 
                 try:
-                    path = await run.io_bound(download, t, out, quality, t.playlist, on_progress, cancel, fmt)
+                    path = await run.io_bound(download, t, out, quality, t.playlist, on_progress, either, fmt)
                     size = Path(path).stat().st_size if path and Path(path).exists() else 0
+                    if t.id not in queue.state:  # removed right as it finished
+                        continue
                     results[t.id] = Result(t.title, "done" if path else "skipped", path, size)
                     if size:
                         queue.sizes[t.id] = size
                     queue.set_state(t.id, "done" if path else "skipped")
                     log(f"✓ {path} ({human_size(size)})" if path else f"= {t.title} — ya estaba, se omite")
                 except Cancelled:
-                    results[t.id] = Result(t.title, "stopped")
-                    queue.set_state(t.id, "stopped", progress["pct"])
+                    if t.id in queue.state:  # stopped batch; a removed row is just dropped
+                        results[t.id] = Result(t.title, "stopped")
+                        queue.set_state(t.id, "stopped", progress["pct"])
                 except Exception as e:
+                    if t.id not in queue.state:  # removed while downloading
+                        continue
                     queue.fails[t.id] = attempt
                     results[t.id] = Result(t.title, "error", error=str(e))
                     queue.errors[t.id] = short_error(str(e))
@@ -470,7 +516,8 @@ def index() -> None:
             log("Detenido por el usuario.")
         status.text = "Detenido." if stopped else "Terminado."
         set_total()
-        summary = summarize(list(results.values()), time.monotonic() - started)
+        summary = summarize(list(results.values()), time.monotonic() - started,
+                            ended_at=time.strftime("%H:%M"), processed=len(results))
         log(f"Resumen: {summary.done} descargadas, {summary.skipped} ya estaban, {summary.failed} fallidas, "
             f"{summary.stopped} detenidas · {human_size(summary.total_bytes)} · {human_time(summary.elapsed)}")
         failed_ids = [tid for tid, r in results.items() if r.state == "error"]

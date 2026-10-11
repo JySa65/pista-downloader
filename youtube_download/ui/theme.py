@@ -41,7 +41,7 @@ CSS = """
   --danger-border: #5a2a2c; --danger: #f08a8a; --danger-soft: #2a1718;
   --ok-soft: #16301f; --ok: #7fd39a; --ok-bar: #4fae6e; --amber: #e0b45a; --amber-soft: #2b2414;
 }
-:root { --q-primary: var(--accent); --col-status: 132px; --col-actions: 104px; }
+:root { --q-primary: var(--accent); --col-status: 132px; --col-actions: 104px; --col-remove: 28px; }
 html, body { background: var(--app); color: var(--text); font-family: 'IBM Plex Sans', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased; overflow: hidden; }
 /* The page never scrolls; each region scrolls on its own (min-height: 0 on flex/grid children). */
@@ -94,7 +94,7 @@ button:disabled { opacity: .45; cursor: default; pointer-events: none; }
   padding: 2px 0; border-radius: 4px; background: var(--line); color: var(--muted); }
 .yt-tag.list { background: var(--accent-soft); color: var(--link); }
 /* Fixed right-hand columns so status chips and actions line up on every row. */
-.yt-row { display: grid; grid-template-columns: 20px 64px minmax(0,1fr) var(--col-status) var(--col-actions);
+.yt-row { display: grid; grid-template-columns: 20px 64px minmax(0,1fr) var(--col-status) var(--col-actions) var(--col-remove);
   gap: 14px; align-items: center; padding: 9px 8px; border-radius: 8px; cursor: pointer; border: 1px solid transparent;
   width: 100%; box-sizing: border-box; /* rows live in a flex column; without this each row shrinks to its content */ }
 /* Fixed-height rows: three fixed text lines; the third holds the progress bar or the error reason. */
@@ -111,9 +111,20 @@ button:disabled { opacity: .45; cursor: default; pointer-events: none; }
 .yt-row.err:hover { background: var(--danger-soft); }
 .yt-row.off .dim { opacity: .5; }
 .yt-row > .yt-pill { justify-self: stretch; text-align: center; padding: 4px 0; }
-.yt-qhead { display: grid; grid-template-columns: 20px 64px minmax(0,1fr) var(--col-status) var(--col-actions);
+.yt-qhead { display: grid; grid-template-columns: 20px 64px minmax(0,1fr) var(--col-status) var(--col-actions) var(--col-remove);
   gap: 14px; padding: 0 25px 6px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
   color: var(--subtle); }
+.yt-remove { width: 28px; height: 28px; border: 0; border-radius: 6px; background: transparent; color: var(--muted);
+  font-size: 16px; line-height: 1; cursor: pointer; padding: 0; }
+.yt-remove:hover { background: var(--btn-hover); color: var(--text); }
+.yt-note { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; line-height: 1.45; padding: 8px 10px;
+  border-radius: 6px; width: 100%; }
+.yt-note::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; margin-top: 6px; flex-shrink: 0; }
+.yt-note-plain { background: var(--line); color: var(--muted); }
+.yt-note-err { background: var(--danger-soft); color: var(--danger); }
+.yt-note-info { background: var(--accent-soft); color: var(--link); }
+.yt-note-warn { background: var(--amber-soft); color: var(--amber); }
+.yt-primary:disabled { opacity: .4; }
 .yt-new { flex-shrink: 0; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em;
   padding: 1px 5px; border-radius: 4px; background: var(--accent-soft); color: var(--link); }
 .yt-retry { height: 28px; border: 1px solid var(--danger-border); background: transparent; color: var(--danger);

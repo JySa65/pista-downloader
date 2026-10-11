@@ -8,6 +8,7 @@ from nicegui import app, run, ui
 from youtube_download.core.batch import Summary, human_size, human_time, status_label
 from youtube_download.core.downloader import preview_clip
 from youtube_download.core.models import Track
+from youtube_download.core.plan import Plan
 from youtube_download.core.system import user_cache_dir
 
 PREVIEW_DIR = user_cache_dir() / "previews"
@@ -33,8 +34,25 @@ def button(text: str, cls: str, on_click: Callable | None = None, stop: bool = F
     return b
 
 
+def closable(dialog: ui.dialog) -> ui.dialog:
+    """Register a dialog that «Detener» should close (Mix question, preview, log file)."""
+    dialogs = getattr(ui.context.client, "yt_closable", None)
+    if dialogs is None:
+        dialogs = ui.context.client.yt_closable = set()
+    dialogs.add(dialog)
+    dialog.on("hide", lambda: dialogs.discard(dialog))
+    return dialog
+
+
+def close_dialogs() -> int:
+    dialogs = list(getattr(ui.context.client, "yt_closable", ()))
+    for d in dialogs:
+        d.close()
+    return len(dialogs)
+
+
 async def ask_mix(limit: int) -> str | None:
-    with ui.dialog() as dialog, ui.card().classes("yt-modal w-[420px] max-h-[90vh] overflow-auto p-[22px] gap-[14px]"):
+    with closable(ui.dialog()) as dialog, ui.card().classes("yt-modal w-[420px] max-h-[90vh] overflow-auto p-[22px] gap-[14px]"):
         ui.label("Hay un Mix en los links").classes("text-[15px] font-semibold")
         ui.label(f"¿Solo este video o el Mix completo (máx. {limit})?").classes("text-[13px] yt-muted")
         with ui.row().classes("w-full justify-end gap-2 mt-1"):
@@ -50,7 +68,7 @@ def open_preview(track: Track) -> None:
     embed = f"https://www.youtube.com/embed/{track.id}?autoplay=1"
     showing_clip = False
 
-    with ui.dialog() as dialog, ui.card().classes("yt-modal w-[780px] max-h-[90vh] p-0 gap-0 overflow-auto no-wrap"):
+    with closable(ui.dialog()) as dialog, ui.card().classes("yt-modal w-[780px] max-h-[90vh] p-0 gap-0 overflow-auto no-wrap"):
         with ui.row().classes("w-full items-center justify-between no-wrap gap-4 py-[14px] pl-5 pr-4"):
             with ui.column().classes("min-w-0 gap-0.5"):
                 ui.label(track.title).classes("text-sm font-semibold truncate w-full")
@@ -118,6 +136,7 @@ class Queue:
         self.on_change = on_change
         self.fmt_label = fmt_label
         self.on_retry: Callable[[str], None] = lambda track_id: None
+        self.on_remove: Callable[[str], None] = lambda track_id: None
         self.render()
 
     def add_tracks(self, tracks: list[Track], new: bool = False) -> int:
@@ -150,6 +169,19 @@ class Queue:
         self.render.refresh()
         self.on_change()
         return len(drop)
+
+    def remove(self, track_id: str) -> Track | None:
+        """Drop one row (the caller cancels it first if it is downloading)."""
+        track = next((t for t in self.tracks if t.id == track_id), None)
+        if track is None:
+            return None
+        self.tracks.remove(track)
+        for d in (self.checked, self.state, self.errors, self.fails, self.sizes):
+            d.pop(track_id, None)
+        self.new.discard(track_id)
+        self.render.refresh()
+        self.on_change()
+        return track
 
     def select_all(self, value: bool) -> None:
         self.checked = {t.id: value for t in self.tracks}
@@ -230,6 +262,7 @@ class Queue:
                 with ui.element("div").classes("yt-pill") as pill:
                     pill_text = ui.label()
                 action = ui.element("div").classes("yt-actions")
+                button("×", "yt-remove", lambda t=t: self.on_remove(t.id), stop=True).props('title="Quitar de la cola"')
             row = dict(el=el, track=t, fill=fill, bar=bar, reason=reason, meta=meta, pill=pill,
                        pill_text=pill_text, action=action, error_shown=None)
             self.rows[t.id] = row
@@ -242,7 +275,7 @@ def summary_dialog(summary: Summary, folder: str, processed: int, go_player: Cal
     with ui.dialog() as dialog, ui.card().classes("yt-modal yt-summary w-[540px] max-h-[90vh] overflow-auto p-0 gap-0 no-wrap"):
         with ui.column().classes("px-6 pt-[22px] pb-1 gap-1 w-full"):
             ui.label("Descarga detenida" if summary.stopped else "Descarga terminada").classes("text-[17px] font-semibold")
-            ui.label(f"{processed} pistas procesadas").classes("text-[13px] yt-muted")
+            ui.label(summary.subtitle or f"{processed} pistas procesadas").classes("text-[13px] yt-muted")
         with ui.element("div").classes("grid grid-cols-4 gap-2 px-6 py-4 w-full"):
             for label, n, cls in (("Descargadas", summary.done, "ok"), ("Ya estaban", summary.skipped, "plain"),
                                   ("Fallidas", summary.failed, "err"), ("Detenidas", summary.stopped, "plain")):
@@ -279,7 +312,7 @@ def log_file_dialog(path: Path, reveal_text: str, reveal: Callable[[], None]) ->
         lines = path.read_text("utf-8", errors="replace").splitlines()[-5000:]
     except OSError as e:
         lines = [f"No se pudo leer el registro: {e}"]
-    with ui.dialog() as dialog, ui.card().classes("yt-modal w-[820px] h-[540px] max-w-[95vw] max-h-[90vh] p-0 gap-0 no-wrap"):
+    with closable(ui.dialog()) as dialog, ui.card().classes("yt-modal w-[820px] h-[540px] max-w-[95vw] max-h-[90vh] p-0 gap-0 no-wrap"):
         with ui.row().classes("yt-line-b w-full items-center justify-between no-wrap gap-3 py-3 pl-5 pr-3.5"):
             ui.label(str(path)).classes("mono text-xs yt-text2 truncate min-w-0")
             with ui.row().classes("gap-1.5 no-wrap shrink-0"):
@@ -298,3 +331,44 @@ def log_class(line: str) -> str:
     if " WARNING " in line or "↻" in line:
         return "amb"
     return "ok" if "✓" in line else ""
+
+
+async def confirm_dialog(make_plan: Callable[[], Plan], folder: Callable[[], str],
+                         change_folder: Callable) -> Plan | None:
+    """«¿Descargar N pista(s)?» review; returns the plan to run, or None if cancelled."""
+    with closable(ui.dialog()) as dialog, ui.card().classes("yt-modal yt-confirm w-[500px] max-w-[95vw] max-h-[90vh] overflow-auto p-0 gap-0 no-wrap"):
+
+        @ui.refreshable
+        def body() -> None:
+            plan = make_plan()
+            with ui.column().classes("px-6 pt-[22px] pb-1.5 gap-1 w-full"):
+                ui.label(f"¿Descargar {plan.count} pista(s)?").classes("text-[17px] font-semibold")
+                ui.label("Revisa antes de empezar.").classes("text-[13px] yt-muted")
+            with ui.element("div").classes("grid items-center gap-x-[18px] gap-y-2.5 px-6 pt-3.5 pb-4 text-[13px] w-full") \
+                    .style("grid-template-columns: auto minmax(0, 1fr)"):
+                ui.label("Carpeta").classes("yt-muted")
+                with ui.row().classes("gap-2 items-center no-wrap min-w-0"):
+                    ui.label(folder()).classes("mono text-xs truncate flex-1 min-w-0").props(f'title="{folder()}"')
+                    button("Cambiar", "yt-btn h-7 text-xs px-2.5", lambda: change())
+                for k, v, mono in (("Formato", plan.format_label, False), ("Peso estimado", f"~{human_size(plan.size_bytes)}", True),
+                                   ("Duración total", hhmmss(plan.duration) if plan.duration else "—", True)):
+                    ui.label(k).classes("yt-muted")
+                    ui.label(v).classes("mono text-xs" if mono else "")
+            if plan.notes:
+                with ui.column().classes("mx-6 mb-4 gap-1.5").style("width: calc(100% - 48px)"):
+                    for kind, text in plan.notes:
+                        ui.label(text).classes(f"yt-note yt-note-{kind}")
+            with ui.row().classes("yt-panel yt-line-t w-full justify-end gap-2 px-6 py-3.5 no-wrap"):
+                button("Cancelar", "yt-btn", lambda: dialog.submit(None))
+                go = button("Descargar", "yt-primary yt-confirm-go", lambda: dialog.submit(plan) if plan.count else None)
+                if not plan.count:
+                    go.props("disabled")
+
+        async def change() -> None:
+            await change_folder()
+            body.refresh()
+
+        body()
+    result = await dialog
+    dialog.delete()
+    return result

@@ -68,3 +68,15 @@ def test_status_label_for_queue_states():
     assert status_label("skipped", 0, 0) == "Ya estaba"
     assert status_label("error", 0, 2) == "Error"
     assert status_label("stopped", 0, 0) == "Detenida"
+
+
+def test_summary_subtitle_finished_records_end_time():
+    s = summarize([Result("A", "done", "/a", 1), Result("B", "skipped")], 3, ended_at="21:05", processed=2)
+    assert s.ended_at == "21:05"
+    assert s.subtitle == "Finalizó a las 21:05 · 2 pistas procesadas"
+
+
+def test_summary_subtitle_when_stopped_explains_resume():
+    s = summarize([Result("A", "done", "/a", 1), Result("B", "stopped")], 3, ended_at="09:30", processed=2)
+    assert s.subtitle == ("Se detuvo a las 09:30. Las pendientes quedaron como «Detenida»; "
+                          "puedes reanudarlas con «Descargar seleccionadas».")
