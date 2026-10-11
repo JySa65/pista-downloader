@@ -1,5 +1,7 @@
 import pytest
 
+from pista.core.batch import BOT_HINT
+
 from pista.core.batch import Result, friendly_error, strip_ansi, summarize
 from pista.core.downloader import base_opts
 
@@ -13,7 +15,7 @@ def test_strip_ansi():
 
 
 @pytest.mark.parametrize("raw, expected", [
-    (BOT, "YouTube pide verificar que no eres un robot. Espera unos minutos e inténtalo de nuevo."),
+    (BOT, "YouTube pide verificar que no eres un robot. Espera unos minutos e inténtalo de nuevo. " + BOT_HINT),
     ("ERROR: [youtube] x: HTTP Error 429: Too Many Requests",
      "YouTube está limitando las descargas (demasiadas solicitudes). Espera unos minutos e inténtalo de nuevo."),
     ("ERROR: [youtube] x: Private video. Sign in if you've been granted access to this video",
@@ -37,7 +39,7 @@ def test_friendly_error(raw, expected):
 
 def test_summary_uses_friendly_reasons():
     s = summarize([Result("A", "error", error=BOT)], 1)
-    assert s.failures == [("A", "YouTube pide verificar que no eres un robot. Espera unos minutos e inténtalo de nuevo.")]
+    assert s.failures == [("A", "YouTube pide verificar que no eres un robot. Espera unos minutos e inténtalo de nuevo. " + BOT_HINT)]
 
 
 def test_yt_dlp_output_has_no_colors():

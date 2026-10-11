@@ -175,6 +175,17 @@ def migrate_legacy(old: Path, new: Path) -> list[Path]:
     return moved
 
 
+def user_config_dir(platform: str = sys.platform, env: Mapping[str, str] = os.environ,
+                    home: Path | None = None) -> Path:
+    """Per-user folder for settings."""
+    home = home or Path.home()
+    if platform == "win32":
+        return Path(env.get("APPDATA") or home / "AppData" / "Roaming") / APP_NAME
+    if platform == "darwin":
+        return home / "Library" / "Application Support" / APP_NAME
+    return Path(env.get("XDG_CONFIG_HOME") or home / ".config") / APP_NAME
+
+
 def user_cache_dir(platform: str = sys.platform, env: Mapping[str, str] = os.environ,
                    home: Path | None = None, app: str = APP_NAME) -> Path:
     """Per-user writable cache dir (never inside the app bundle)."""

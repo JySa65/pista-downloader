@@ -23,9 +23,20 @@ def redact(text: str, home: str, platform: str = sys.platform) -> str:
     return re.sub(re.escape(home) + r"(?![^/\s\"'|:;,)\]])", "~", text)
 
 
+# Cookie headers / jars must never reach the log file (the optional browser-session feature).
+_COOKIE_HEADER = re.compile(r"((?:Set-)?Cookie['\"]?\s*[:=]\s*['\"]?)[^'\"\n]*", re.IGNORECASE)
+_COOKIE_PAIR = re.compile(r"\b((?:__Secure-|__Host-)?(?:[0-9A-Z]*SID|SAPISID|APISID|SSID|HSID|LOGIN_INFO|"
+                          r"VISITOR_INFO1_LIVE|VISITOR_PRIVACY_METADATA|PREF|YSC|SIDCC|CONSENT|SOCS)[\w-]*)=[^;\s'\"]+")
+
+
+def redact_cookies(text: str) -> str:
+    text = _COOKIE_HEADER.sub(r"\1[redactado]", text)
+    return _COOKIE_PAIR.sub(r"\1=[redactado]", text)
+
+
 class _RedactingFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
-        return redact(super().format(record), str(Path.home()))
+        return redact_cookies(redact(super().format(record), str(Path.home())))
 
 
 def _open_handler(directory: Path) -> tuple[Path, RotatingFileHandler]:

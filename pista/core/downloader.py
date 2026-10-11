@@ -68,7 +68,16 @@ def _retry_sleep(attempt: int) -> float:
     return min(60.0, 2.0 ** attempt)
 
 
-def base_opts(ffmpeg: str | None, deno: str | None, logger: object | None) -> dict:
+_cookie_browser: str | None = None  # set from the UI option; None = don't use browser cookies
+
+
+def set_cookie_browser(browser: str | None) -> None:
+    """Use this browser's YouTube session for every yt-dlp call (listing, download, preview), or None."""
+    global _cookie_browser
+    _cookie_browser = browser
+
+
+def base_opts(ffmpeg: str | None, deno: str | None, logger: object | None, cookies_browser: str | None = None) -> dict:
     """Options shared by every yt-dlp call: bundled tools, retries, quiet console, portable names."""
     opts = {
         "quiet": True,
@@ -88,6 +97,9 @@ def base_opts(ffmpeg: str | None, deno: str | None, logger: object | None) -> di
         opts["js_runtimes"] = {"deno": {"path": deno}}
     if logger is not None:
         opts["logger"] = logger
+    if cookies_browser:
+        # yt-dlp reads the cookies in memory for its requests; Pista never stores or logs them.
+        opts["cookiesfrombrowser"] = (cookies_browser,)
     return opts
 
 
@@ -97,7 +109,7 @@ def _ydl(extra: dict) -> yt_dlp.YoutubeDL:
     # yt-dlp only honors `ffmpeg_location` in some code paths (e.g. picking the downloader for
     # partial/section downloads checks this context var, which only its CLI sets). Set it in this thread.
     FFmpegPostProcessor._ffmpeg_location.set(ffmpeg)
-    return yt_dlp.YoutubeDL({**base_opts(ffmpeg, find_deno(), _Logger()), **extra})
+    return yt_dlp.YoutubeDL({**base_opts(ffmpeg, find_deno(), _Logger(), _cookie_browser), **extra})
 
 
 def _thumbnail(entry: dict) -> str | None:

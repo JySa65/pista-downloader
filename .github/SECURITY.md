@@ -8,6 +8,10 @@ Only the [latest release](https://github.com/JySa65/pista-downloader/releases/la
 
 Release installers come with `SHA256SUMS.txt` and a signed build-provenance attestation produced by the release workflow. Verify with `sha256sum -c SHA256SUMS.txt --ignore-missing` and `gh attestation verify <file> --repo JySa65/pista-downloader`.
 
+## Browser session option
+
+«Usar la sesión de YouTube de mi navegador» is **off by default**. When enabled, yt-dlp reads the chosen browser's cookies (via `cookiesfrombrowser`) into memory for its YouTube requests only. Pista never writes cookies to disk or sends them anywhere else, and the log file redacts cookie headers and YouTube session cookies. Only the choice itself (enabled + browser name) is saved, in `settings.json` in the per-user config folder.
+
 ## Reporting a vulnerability
 
 Please **do not** open a public issue for security problems.

@@ -3,6 +3,8 @@ import asyncio
 
 from yt_dlp.utils import DownloadError
 
+from pista.core.batch import BOT_HINT
+
 from pista.core.loading import load_links, load_message
 from pista.core.models import Track
 
@@ -70,7 +72,7 @@ def test_failure_keeps_link_with_friendly_reason_and_backs_off():
     sleeps = []
     f = Fake(fail={MIX: BOT})
     o1, o2 = load([MIX, VIDEO], f, sleeps=sleeps)
-    assert o1.error == "YouTube pide verificar que no eres un robot. Espera unos minutos e inténtalo de nuevo."
+    assert o1.error == "YouTube pide verificar que no eres un robot. Espera unos minutos e inténtalo de nuevo. " + BOT_HINT
     assert o1.tracks == [] and o2.tracks  # the next link still loads...
     assert sum(sleeps) >= 15  # ...after a pause, not immediately
 

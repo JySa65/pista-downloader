@@ -14,14 +14,15 @@ from pista import build_date, version
 from pista.core.applog import setup_logging
 from pista.core.batch import MAX_ATTEMPTS, human_size, human_time, short_error
 from pista.core.loading import load_links, load_message
-from pista.core.downloader import ARCHIVES, download, list_tracks
+from pista.core.downloader import ARCHIVES, download, list_tracks, set_cookie_browser
+from pista.core.settings import browsers_for, load_settings, save_settings
 from pista.core.progress import batch_status
 from pista.core.queue import BatchRunner, progress_total, stop_all
 from pista.core.plan import archived_ids, plan_download
 from yt_dlp.version import __version__ as yt_dlp_version
 
 from pista.core.system import (
-    LEGACY_APP_NAME, migrate_legacy, user_cache_dir, default_outdir, find_deno, find_ffmpeg, has_ffmpeg, log_dir, open_path, read_clipboard, reveal_label, reveal_path,
+    LEGACY_APP_NAME, migrate_legacy, user_cache_dir, user_config_dir, default_outdir, find_deno, find_ffmpeg, has_ffmpeg, log_dir, open_path, read_clipboard, reveal_label, reveal_path,
 )
 from pista.core.links import open_url
 from pista.core.report import REPO, current_os, issue_url
@@ -68,6 +69,9 @@ def safely(action, what: str) -> None:
 def index() -> None:
     theme.apply()
     log_path = setup_logging(log_dir())
+    settings_path = user_config_dir() / "settings.json"
+    prefs = load_settings(settings_path)
+    set_cookie_browser(prefs["browser"] if prefs["cookies"] else None)
     logger.info("v%s · yt-dlp %s · ffmpeg=%s · deno=%s", version(), yt_dlp_version, find_ffmpeg(), find_deno())
     dark = False
     links: list[str] = []
@@ -192,6 +196,16 @@ def index() -> None:
                         ui.label("Canciones por Mix").classes("yt-label")
                         mix_value = ui.label("50 / 50").classes("mono text-xs yt-text2")
                     mix_limit = ui.slider(min=1, max=50, value=50).props("dense color=primary")
+                with ui.column().classes("w-full gap-1.5"):
+                    # Optional: use the browser's YouTube session (yt-dlp cookiesfrombrowser). Off by default.
+                    cookies_switch = ui.switch("Usar la sesión de YouTube de mi navegador", value=prefs["cookies"]) \
+                        .props("dense color=primary").classes("yt-switch text-[13px]")
+                    cookies_browser = ui.select(dict(browsers_for()), value=prefs["browser"]) \
+                        .props("borderless dense options-dense").classes("yt-field w-full h-[34px]")
+                    cookies_browser.set_visibility(prefs["cookies"])
+                    ui.label("Ayuda cuando YouTube pide verificar que no eres un robot. Pista lee las cookies de "
+                             "YouTube de ese navegador solo para descargar; no las guarda ni las envía a otro sitio.") \
+                        .classes("text-xs yt-subtle leading-normal")
 
             ui.element("div").classes("flex-1")
             with ui.element("div").classes("yt-footnote"):
@@ -334,6 +348,16 @@ def index() -> None:
 
     def fmt_short() -> str:
         return f"MP3 {quality}" if fmt == "audio" else f"MP4 {quality}"
+
+    def on_cookies_change() -> None:
+        prefs.update(cookies=bool(cookies_switch.value), browser=cookies_browser.value)
+        save_settings(settings_path, prefs)  # only the choice, never cookies
+        set_cookie_browser(prefs["browser"] if prefs["cookies"] else None)
+        cookies_browser.set_visibility(prefs["cookies"])
+        log("Sesión del navegador: " + (f"activada ({prefs['browser']})" if prefs["cookies"] else "desactivada"))
+
+    cookies_switch.on_value_change(on_cookies_change)
+    cookies_browser.on_value_change(on_cookies_change)
 
     mix_limit.on_value_change(lambda: setattr(mix_value, "text", f"{int(mix_limit.value)} / 50"))
 

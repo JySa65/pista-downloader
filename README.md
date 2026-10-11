@@ -69,6 +69,13 @@ Las listas y los Mix se guardan en una subcarpeta con su nombre. **▶ Ver** mue
 **Algunas descargas fallan con «HTTP Error 403: Forbidden».**
 YouTube cambia a menudo y las versiones antiguas de yt-dlp dejan de funcionar. Actualiza a la [última versión de Pista](https://github.com/JySa65/pista-downloader/releases/latest) (**Acerca de → Buscar actualizaciones**). Si sigue pasando, usa **Reportar un problema** y adjunta el registro.
 
+**YouTube dice «verifica que no eres un robot».**
+YouTube a veces lo pide cuando recibe muchas peticiones desde la misma conexión. Espera unos minutos y usa «↻ Reintentar». Si sigue pasando, activa **«Usar la sesión de YouTube de mi navegador»** en las opciones y elige un navegador donde tengas abierta tu sesión de YouTube. Es opcional y viene desactivado. Pista lee las cookies de YouTube de ese navegador solo mientras descarga: no las guarda, no las escribe en el registro y no las envía a ningún otro sitio. Solo se guarda tu elección (activado y qué navegador).
+
+- **Windows:** Chrome, Edge y otros basados en Chrome cifran sus cookies y a menudo no se pueden leer; usa **Firefox**.
+- **macOS:** con Chrome, Edge o Brave el sistema puede pedir permiso del llavero (acéptalo). Safari necesita dar a Pista **Acceso total al disco** (Ajustes del Sistema → Privacidad y seguridad).
+- Si el navegador está abierto y sus cookies están bloqueadas, ciérralo e inténtalo de nuevo.
+
 **¿Dónde está el registro?**
 En la app: **Abrir registro → Mostrar en Finder / en el Explorador / en la carpeta**. El archivo es `pista.log`:
 

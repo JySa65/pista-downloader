@@ -35,8 +35,25 @@ def strip_ansi(text: str) -> str:
 
 
 # (pattern, friendly reason) — checked in order; the first match wins.
+BOT_HINT = "Puedes activar «Usar la sesión de YouTube de mi navegador» en las opciones."
+
 _REASONS = [
-    (r"confirm you.?re not a bot", "YouTube pide verificar que no eres un robot. Espera unos minutos e inténtalo de nuevo."),
+    # Optional browser-session cookies (cookiesfrombrowser) — known platform limits.
+    (r"Failed to decrypt with DPAPI|app.?bound encryption",
+     "No se pudieron leer las cookies de ese navegador en Windows (los navegadores basados en Chrome las cifran). "
+     "Prueba con Firefox."),
+    (r"Could not copy .* cookie database|database is locked",
+     "El navegador tiene sus cookies bloqueadas: ciérralo del todo e inténtalo de nuevo."),
+    (r"Cookies\.binarycookies|could not find safari cookies",
+     "Para usar Safari, da a Pista «Acceso total al disco» en Ajustes del Sistema → Privacidad y seguridad, "
+     "o elige otro navegador."),
+    (r"could not find \w+ cookies database|could not find local state file",
+     "No se encontró el perfil de ese navegador. ¿Está instalado y has iniciado sesión en YouTube con él?"),
+    (r"failed to load cookies|cannot decrypt .* cookies|failed to read from keyring",
+     "No se pudieron leer las cookies del navegador. Si el sistema pidió permiso (llavero), acéptalo, "
+     "o desactiva la opción."),
+    (r"confirm you.?re not a bot", "YouTube pide verificar que no eres un robot. Espera unos minutos e inténtalo de nuevo. "
+                                   + BOT_HINT),
     (r"HTTP Error 429|Too Many Requests", "YouTube está limitando las descargas (demasiadas solicitudes). "
                                           "Espera unos minutos e inténtalo de nuevo."),
     (r"Private video", "El video es privado."),
