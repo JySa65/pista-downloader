@@ -55,3 +55,16 @@ def test_setup_logging_writes_rotating_file(tmp_path):
     assert "x" * 3000 in text  # full, untruncated lines
     setup_logging(tmp_path)  # idempotent: no duplicate handlers
     assert len([h for h in logging.getLogger("youtube_download").handlers if getattr(h, "_ytmp3", False)]) == 1
+
+
+def test_status_label_for_queue_states():
+    from youtube_download.core.batch import MAX_ATTEMPTS, status_label
+
+    assert MAX_ATTEMPTS == 3
+    assert status_label("queued", 0, 0) == "En cola"
+    assert status_label("queued", 0, 1) == "Reintentando (2/3)"
+    assert status_label("running", 46.4, 0) == "46%"
+    assert status_label("done", 100, 0) == "Listo"
+    assert status_label("skipped", 0, 0) == "Ya estaba"
+    assert status_label("error", 0, 2) == "Error"
+    assert status_label("stopped", 0, 0) == "Detenida"

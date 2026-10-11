@@ -97,3 +97,14 @@ def test_open_command_per_os():
     assert open_command("darwin", "/x y") == ["open", "/x y"]
     assert open_command("linux", "/x") == ["xdg-open", "/x"]
     assert open_command("win32", "C:/x") is None  # os.startfile is used instead
+
+
+def test_reveal_command_and_label_per_os():
+    from youtube_download.core.system import reveal_command, reveal_label
+
+    assert reveal_command("darwin", "/m/a b.mp3") == ["open", "-R", "/m/a b.mp3"]
+    assert reveal_command("win32", r"C:\m\a.mp3") == ["explorer", r"/select,C:\m\a.mp3"]
+    assert reveal_command("linux", "/m/a.mp3") == ["xdg-open", str(Path("/m"))]  # no portable "select"
+    assert reveal_label("darwin") == "Mostrar en Finder"
+    assert reveal_label("win32") == "Mostrar en el Explorador"
+    assert reveal_label("linux") == "Mostrar en la carpeta"

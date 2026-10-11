@@ -63,3 +63,16 @@ def human_time(seconds: float) -> str:
     if s < 3600:
         return f"{s // 60} min {s % 60} s"
     return f"{s // 3600} h {s % 3600 // 60} min"
+
+
+MAX_ATTEMPTS = 3  # first try + automatic retry + one manual "Reintentar"
+_LABELS = {"queued": "En cola", "done": "Listo", "skipped": "Ya estaba", "error": "Error", "stopped": "Detenida"}
+
+
+def status_label(state: str, pct: float, failed_attempts: int) -> str:
+    """Queue status chip text; a re-queued failure shows which attempt is next."""
+    if state == "running":
+        return f"{pct:.0f}%"
+    if state == "queued" and failed_attempts:
+        return f"Reintentando ({failed_attempts + 1}/{MAX_ATTEMPTS})"
+    return _LABELS[state]

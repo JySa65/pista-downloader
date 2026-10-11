@@ -96,6 +96,24 @@ def open_command(platform: str, target: str) -> list[str] | None:
     return ["open" if platform == "darwin" else "xdg-open", target]
 
 
+def reveal_command(platform: str, target: str) -> list[str]:
+    """Show a file selected in the OS file manager (Linux: open its folder; no portable 'select')."""
+    if platform == "darwin":
+        return ["open", "-R", target]
+    if platform == "win32":
+        return ["explorer", f"/select,{target}"]
+    return ["xdg-open", str(Path(target).parent)]
+
+
+def reveal_label(platform: str = sys.platform) -> str:
+    return {"darwin": "Mostrar en Finder", "win32": "Mostrar en el Explorador"}.get(platform, "Mostrar en la carpeta")
+
+
+def reveal_path(target: str | Path) -> None:
+    subprocess.Popen(reveal_command(sys.platform, str(target)), stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, **no_window())
+
+
 def open_path(target: str | Path) -> None:
     cmd = open_command(sys.platform, str(target))
     if cmd is None:

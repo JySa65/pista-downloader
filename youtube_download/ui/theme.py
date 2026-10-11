@@ -28,7 +28,7 @@ CSS = """
   --accent: #3d82d1; --accent-hover: #2f74c0; --on-accent: #ffffff; --link: #2a6db8;
   --accent-soft: #e2edfa; --accent-text: #1f5fa8;
   --danger-border: #efc3c3; --danger: #c23b3b; --danger-soft: #fdeeee;
-  --ok-soft: #e1f4e7; --ok: #1f7a3d; --ok-bar: #3a9a5a;
+  --ok-soft: #e1f4e7; --ok: #1f7a3d; --ok-bar: #3a9a5a; --amber: #8a5a00; --amber-soft: #fbf1d9;
 }
 :root[data-theme="dark"] {
   --app: #141517; --bar: #1a1b1e; --panel: #17181a; --field: #0f1012; --line: #26282c;
@@ -39,9 +39,9 @@ CSS = """
   --accent: #5b9be0; --accent-hover: #73abe8; --on-accent: #0b1a2b; --link: #7fb2ea;
   --accent-soft: #1c2836; --accent-text: #9cc4f0;
   --danger-border: #5a2a2c; --danger: #f08a8a; --danger-soft: #2a1718;
-  --ok-soft: #16301f; --ok: #7fd39a; --ok-bar: #4fae6e;
+  --ok-soft: #16301f; --ok: #7fd39a; --ok-bar: #4fae6e; --amber: #e0b45a; --amber-soft: #2b2414;
 }
-:root { --q-primary: var(--accent); --col-status: 96px; --col-actions: 168px; }
+:root { --q-primary: var(--accent); --col-status: 132px; --col-actions: 104px; }
 html, body { background: var(--app); color: var(--text); font-family: 'IBM Plex Sans', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased; overflow: hidden; }
 /* The page never scrolls; each region scrolls on its own (min-height: 0 on flex/grid children). */
@@ -95,9 +95,68 @@ button:disabled { opacity: .45; cursor: default; pointer-events: none; }
 .yt-tag.list { background: var(--accent-soft); color: var(--link); }
 /* Fixed right-hand columns so status chips and actions line up on every row. */
 .yt-row { display: grid; grid-template-columns: 20px 64px minmax(0,1fr) var(--col-status) var(--col-actions);
-  gap: 14px; align-items: center; padding: 10px 8px; border-radius: 8px; cursor: pointer;
+  gap: 14px; align-items: center; padding: 9px 8px; border-radius: 8px; cursor: pointer; border: 1px solid transparent;
   width: 100%; box-sizing: border-box; /* rows live in a flex column; without this each row shrinks to its content */ }
-.yt-row > .yt-pill { justify-self: end; }
+/* Fixed-height rows: three fixed text lines; the third holds the progress bar or the error reason. */
+.yt-row { height: 64px; }
+.yt-text { display: grid; grid-template-rows: 18px 16px 12px; row-gap: 2px; min-width: 0; width: 100%; align-items: center; }
+.yt-titleline { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.yt-title { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.yt-meta { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.yt-third { position: relative; height: 12px; min-width: 0; display: flex; align-items: center; }
+.yt-third .yt-track { width: 100%; margin: 0; }
+.yt-reason { font-size: 12px; line-height: 12px; color: var(--danger); white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; min-width: 0; width: 100%; }
+.yt-row.err { background: var(--danger-soft); border-color: var(--danger-border); }
+.yt-row.err:hover { background: var(--danger-soft); }
+.yt-row.off .dim { opacity: .5; }
+.yt-row > .yt-pill { justify-self: stretch; text-align: center; padding: 4px 0; }
+.yt-qhead { display: grid; grid-template-columns: 20px 64px minmax(0,1fr) var(--col-status) var(--col-actions);
+  gap: 14px; padding: 0 25px 6px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--subtle); }
+.yt-new { flex-shrink: 0; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em;
+  padding: 1px 5px; border-radius: 4px; background: var(--accent-soft); color: var(--link); }
+.yt-retry { height: 28px; border: 1px solid var(--danger-border); background: transparent; color: var(--danger);
+  font: inherit; font-size: 12px; font-weight: 500; border-radius: 6px; cursor: pointer; width: 100%; }
+.yt-retry:hover { background: var(--danger-soft); }
+.yt-notice { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; line-height: 1.45; color: var(--link);
+  background: var(--accent-soft); border-radius: 6px; padding: 7px 10px; }
+.yt-notice::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-top: 6px; flex-shrink: 0; }
+.yt-sep { height: 1px; background: var(--line); flex-shrink: 0; width: 100%; }
+.yt-divider { width: 1px; height: 16px; background: var(--btn-border); margin: 0 4px; }
+.yt-btn.sm { height: auto; font-size: 12px; padding: 5px 10px; border-radius: 6px; }
+.yt-logline { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--log); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.yt-logbox { font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 1.65; white-space: pre-wrap;
+  word-break: break-all; background: var(--field); border: 1px solid var(--field-border); border-radius: 7px;
+  padding: 10px 12px; overflow: auto; color: var(--log); }
+.yt-logbox .ok { color: var(--ok); } .yt-logbox .err { color: var(--danger); } .yt-logbox .amb { color: var(--amber); }
+.yt-pill.amb { background: var(--amber-soft); color: var(--amber); }
+.yt-pill.line { background: var(--line); color: var(--muted); }
+.yt-card { border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 2px; }
+.yt-card.ok { background: var(--ok-soft); color: var(--ok); }
+.yt-card.err { background: var(--danger-soft); color: var(--danger); }
+.yt-card.plain { background: var(--btn); border: 1px solid var(--line); }
+.yt-card.plain .k { color: var(--muted); }
+.yt-failbox { border: 1px solid var(--danger-border); border-radius: 8px; overflow: hidden; }
+.yt-failbox .h { padding: 8px 12px; font-size: 12px; font-weight: 600; color: var(--danger); background: var(--danger-soft); }
+.yt-failbox .r { display: flex; justify-content: space-between; gap: 12px; padding: 8px 12px; border-top: 1px solid var(--line);
+  font-size: 12px; }
+.yt-ghostbtn { height: 36px; padding: 0 14px; border: 0; background: transparent; color: var(--muted); font: inherit;
+  font-size: 13px; border-radius: 7px; cursor: pointer; }
+.yt-ghostbtn:hover { background: var(--btn-hover); }
+.yt-danger.md { height: 36px; padding: 0 14px; }
+.yt-fmt { font-size: 10px; font-weight: 600; letter-spacing: .03em; text-align: center; padding: 2px 0; border-radius: 4px;
+  background: var(--accent-soft); color: var(--link); }
+.yt-fmt.mp4 { background: var(--amber-soft); color: var(--amber); }
+.yt-fmt.pad { padding: 2px 6px; }
+.yt-videobox { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden; background: #000; }
+.yt-videobox video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+.yt-fullbtn { position: absolute; right: 8px; bottom: 8px; height: 28px; padding: 0 10px; border: 0; border-radius: 6px;
+  background: rgba(0,0,0,.65); color: #fff; font: inherit; font-size: 12px; cursor: pointer; z-index: 2; }
+.yt-fullbtn:hover { background: rgba(0,0,0,.85); }
+/* In-window fullscreen (works in every webview; Esc exits). */
+.yt-videobox.full { position: fixed; inset: 0; z-index: 3000; width: auto; aspect-ratio: auto; border-radius: 0; }
 .yt-actions { display: flex; justify-content: flex-end; align-items: center; gap: 2px; min-width: 0; }
 .yt-area { background: var(--field); border: 1px solid var(--field-border); border-radius: 7px; padding: 6px 10px; }
 .yt-area:focus-within { border-color: var(--accent); }
@@ -128,8 +187,8 @@ button:disabled { opacity: .45; cursor: default; pointer-events: none; }
 .yt-error { color: var(--danger); }
 .yt-modal { background: var(--bar); color: var(--text); border: 1px solid var(--btn-border); border-radius: 12px;
   box-shadow: 0 20px 50px rgba(0,0,0,.35); max-width: none; }
-.yt-libhead, .yt-librow { display: grid; grid-template-columns: 32px minmax(0,1fr) 160px 60px; gap: 14px; align-items: center; }
-.yt-libhead { padding: 6px 32px; margin: 0 16px; font-size: 11px; font-weight: 600; letter-spacing: .04em;
+.yt-libhead, .yt-librow { display: grid; grid-template-columns: 28px 40px minmax(0,1fr) 140px 56px; gap: 14px; align-items: center; }
+.yt-libhead { padding: 6px 16px; margin: 0 16px; font-size: 11px; font-weight: 600; letter-spacing: .04em;
   text-transform: uppercase; color: var(--subtle); border-bottom: 1px solid var(--line); }
 .yt-librow { padding: 9px 16px; border-radius: 7px; cursor: pointer; }
 .yt-librow:hover { background: var(--btn); }

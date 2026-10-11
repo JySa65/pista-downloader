@@ -50,14 +50,17 @@ class Player:
                     self.query = ui.input(placeholder="Buscar", on_change=lambda: self.render.refresh()) \
                         .props("borderless dense").classes("yt-field w-[200px] h-8")
                 with ui.element("div").classes("yt-libhead shrink-0"):
-                    for h in ("#", "Título", "Artista"):
+                    for h in ("#", "Tipo", "Título", "Artista"):
                         ui.label(h)
                     ui.label("Dur.").classes("text-right")
                 with ui.column().classes("flex-1 min-h-0 overflow-auto px-4 py-1.5 gap-0 w-full no-wrap"):
                     self.render()
-            with ui.column().classes("yt-panel yt-line-l p-7 gap-5 min-h-0 overflow-auto no-wrap"):
-                ui.label("Reproduciendo").classes("yt-label")
-                self.cover = ui.element("div").classes("yt-cover w-full overflow-hidden")
+            with ui.column().classes("yt-panel yt-line-l px-7 py-6 gap-[18px] min-h-0 overflow-auto no-wrap"):
+                with ui.row().classes("w-full items-center justify-between"):
+                    ui.label("Reproduciendo").classes("yt-label")
+                    self.fmt_tag = ui.label("MP3").classes("yt-fmt pad")
+                    self.fmt_tag.set_visibility(False)
+                self.cover = ui.element("div").classes("yt-cover w-full overflow-hidden shrink-0")
                 self.show_placeholder()
                 with ui.column().classes("gap-1 w-full"):
                     self.title = ui.label("—").classes("text-lg font-semibold leading-snug")
@@ -85,6 +88,18 @@ class Player:
                     .props("dense color=primary").classes("w-[120px]")
 
         self.audio = self.wire(ui.audio("", controls=False, autoplay=True).classes("hidden"))
+        ui.keyboard(on_key=self.on_key, ignore=["input", "textarea"])
+
+    def on_key(self, e) -> None:
+        if e.key == "Escape" and e.action.keydown:
+            self.set_full(False)
+
+    def set_full(self, full: bool) -> None:
+        """In-window fullscreen for the MP4 (a fixed overlay; works in every webview)."""
+        if self.video is None:
+            return
+        self.cover.classes(add="full" if full else "", remove="" if full else "full")
+        self.full_text.text = "Salir (Esc)" if full else "⛶ Pantalla completa"
 
     def wire(self, el):
         """Same transport events for the hidden <audio> and the MP4 <video>."""
@@ -99,6 +114,7 @@ class Player:
         return self.video or self.audio
 
     def show_placeholder(self) -> None:
+        self.cover.classes(replace="yt-cover w-full overflow-hidden shrink-0")
         self.cover.clear()
         with self.cover:
             ui.label("portada")
@@ -106,8 +122,8 @@ class Player:
     def show_cover(self, f: Path) -> None:
         """Cover embedded in the MP3 at download time; placeholder when there is none."""
         found = cover_bytes(f) if f.suffix.lower() == ".mp3" else None
+        self.show_placeholder()
         if not found:
-            self.show_placeholder()
             return
         data, mime = found
         self.cover.clear()
@@ -169,6 +185,8 @@ class Player:
             cur = i == self.cur
             with ui.element("div").classes("yt-librow w-full" + (" cur" if cur else "")).on("click", lambda i=i: self.play(i)):
                 ui.label("▶" if cur and self.playing else f"{i + 1:02d}").classes("n mono text-xs yt-subtle")
+                is_video = f.suffix.lower() == ".mp4"
+                ui.label("MP4" if is_video else "MP3").classes("yt-fmt" + (" mp4" if is_video else ""))
                 ui.label(title).classes("t text-[13px] font-medium truncate")
                 ui.label(artist or f.parent.name).classes("text-[13px] yt-muted truncate")
                 ui.label(hhmmss(self.duration) if cur and self.duration else "—").classes("mono text-xs yt-muted text-right")
@@ -183,12 +201,19 @@ class Player:
         self.title.text, self.artist.text = title, artist or f.parent.name
         self.duration = 0.0
         src = media_url(self.root(), f)
-        if f.suffix.lower() == ".mp4":
+        is_video = f.suffix.lower() == ".mp4"
+        self.fmt_tag.text = "MP4" if is_video else "MP3"
+        self.fmt_tag.classes(replace="yt-fmt pad" + (" mp4" if is_video else ""))
+        self.fmt_tag.set_visibility(True)
+        if is_video:
             self.audio.pause()
             self.cover.clear()
-            with self.cover:  # native controls include fullscreen
-                self.video = self.wire(ui.video(src, controls=True, autoplay=True)
-                                       .classes("w-full h-full bg-black").style("object-fit: contain"))
+            self.cover.classes(replace="yt-videobox shrink-0")
+            with self.cover:
+                self.video = self.wire(ui.video(src, controls=True, autoplay=True))
+                with ui.element("button").classes("yt-fullbtn").on(
+                        "click", lambda: self.set_full("full" not in self.cover.classes)):
+                    self.full_text = ui.label("⛶ Pantalla completa")
         else:
             if self.video is not None:
                 self.video.pause()
