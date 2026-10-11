@@ -1,4 +1,5 @@
 """Per-item download results and the end-of-batch summary."""
+import os
 import re
 from dataclasses import dataclass, field
 
@@ -72,10 +73,27 @@ _REASONS = [
 def friendly_error(msg: str, limit: int = 120) -> str:
     """Short Spanish reason for a yt-dlp error; unknown errors fall back to the cleaned-up message."""
     clean = strip_ansi(msg)
+    if _browser_folder_blocked(clean):
+        return ("Pista no tiene permiso para leer las cookies de ese navegador. Dale «Acceso total al disco» en "
+                "Ajustes del Sistema → Privacidad y seguridad y vuelve a abrir Pista.")
     for pattern, reason in _REASONS:
         if re.search(pattern, clean, re.IGNORECASE):
             return reason
     return short_error(clean, limit)
+
+
+def _browser_folder_blocked(msg: str) -> bool:
+    """yt-dlp reports «could not find … cookies database» when macOS privacy protection hides the profile."""
+    m = re.search(r'could not find \w+ cookies database in "?([^"\n]+)"?', msg, re.IGNORECASE)
+    if not m:
+        return False
+    try:
+        os.listdir(os.path.expanduser(m.group(1).strip()))
+    except PermissionError:
+        return True
+    except OSError:
+        pass
+    return False
 
 
 def short_error(msg: str, limit: int = 120) -> str:

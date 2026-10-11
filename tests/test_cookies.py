@@ -100,3 +100,14 @@ def test_cookie_errors_are_explained(raw, expected_start):
 def test_bot_check_suggests_the_option():
     msg = friendly_error("ERROR: [youtube] x: Sign in to confirm you’re not a bot.")
     assert msg.endswith(BOT_HINT)
+
+
+def test_blocked_browser_folder_asks_for_disk_access(tmp_path):
+    profile = tmp_path / "Brave-Browser"
+    profile.mkdir()
+    profile.chmod(0)  # what macOS privacy protection looks like to yt-dlp: the folder exists but can't be read
+    try:
+        msg = friendly_error(f'ERROR: could not find brave cookies database in "{profile}"')
+    finally:
+        profile.chmod(0o700)
+    assert "Acceso total al disco" in msg
