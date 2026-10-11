@@ -52,6 +52,14 @@ The UI follows designs made outside this repository (design exports are not vers
 2. Tag `vX.Y.Z` on `main` and push the tag. The `Release` workflow checks that the tag matches the version, builds the Windows, macOS and Linux installers and attaches them to a GitHub Release.
 3. `Run workflow` on the `Release` workflow builds test installers without publishing.
 
+### Packaging details
+
+- Local build for the current OS: `uv sync --group build && uv run python packaging/build.py` (output in `dist/`). Windows needs [Inno Setup 6](https://jrsoftware.org/isinfo.php) (`ISCC.exe`); the first macOS build compiles an LGPL ffmpeg (~2 min, Xcode command line tools).
+- Bundled tools: LGPL ffmpeg/ffprobe (Windows/Linux: BtbN `lgpl` builds pinned by URL + SHA-256 in `packaging/build.py`; macOS: built from pinned sources by `packaging/build_ffmpeg_macos.sh`), Deno and yt-dlp's EJS scripts (needed for YouTube's JS challenges; without them downloads can fail with HTTP 403). The workflow fails if the bundled ffmpeg is a GPL build. Licenses: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+- BtbN eventually deletes old autobuilds: when the ffmpeg download 404s, pick a newer `autobuild-*` release (`ffmpeg-n<ver>-…-lgpl-<ver>` asset) and update the URL and checksum.
+- yt-dlp: `.github/workflows/update-yt-dlp.yml` runs weekly, bumps yt-dlp in `uv.lock` and opens a PR (needs *Settings → Actions → General → Allow GitHub Actions to create and approve pull requests*). Merge it and tag a release to ship it. Other dependencies are updated by Dependabot.
+- Running from source on Linux needs a pywebview backend (GTK: `sudo apt install python3-gi gir1.2-webkit2-4.1`, or Qt: `uv pip install "pywebview[qt]"`); otherwise use `uv run main.py --browser` (or `PISTA_BROWSER=1`).
+
 ## License of contributions
 
 This project is licensed under the [GNU General Public License v3.0 or later](../LICENSE). By submitting a contribution you agree that it is licensed under the same terms (inbound = outbound). Make sure you have the right to submit it.
