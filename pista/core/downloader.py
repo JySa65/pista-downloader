@@ -92,10 +92,9 @@ def base_opts(ffmpeg: str | None, deno: str | None, logger: object | None, cooki
         "retries": 10,  # media HTTP retries only cover network errors/5xx: keep resilience for drops
         "fragment_retries": 10,
         "extractor_retries": 1,  # a 429/bot check is handled by the global breaker, not by hammering
-        # Pacing: ~1 s between extraction requests, 2–5 s (random) before each download.
+        # Pacing: ~1 s between extraction requests. The 5–10 s pause between downloads is BatchRunner's
+        # (visible in the UI); yt-dlp's own sleep_interval would also sleep before each format (twice per MP4).
         "sleep_interval_requests": 1,
-        "sleep_interval": 2,
-        "max_sleep_interval": 5,
         # yt-dlp retries immediately by default; back off instead (1, 2, 4, … s, capped).
         "retry_sleep_functions": {kind: _retry_sleep for kind in ("http", "fragment", "extractor")},
         "allowed_extractors": ALLOWED_EXTRACTORS,

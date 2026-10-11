@@ -49,3 +49,8 @@ def batch_status(phase: str | None, position: int, total: int, fmt_text: str) ->
     if phase == "merging":
         return f"Uniendo audio y video {position} de {total}…"
     return f"Descargando {position} de {total} · {fmt_text}"
+
+
+def pace_status(seconds: int) -> str:
+    return (f"Pausa de {seconds} s antes de la siguiente canción para que YouTube no pida verificar "
+            "que no eres un robot…")

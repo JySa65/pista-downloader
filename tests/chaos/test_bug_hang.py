@@ -53,7 +53,7 @@ def test_removing_a_hung_item_moves_on_to_the_next():
             release.wait(30)
         return None
 
-    r = BatchRunner(m, download, out="/o", quality="192", fmt="audio", run_io=to_thread, stop_grace=0.3)
+    r = BatchRunner(m, download, out="/o", quality="192", fmt="audio", run_io=to_thread, stop_grace=0.3, pace=(0, 0))
 
     async def main():
         task = asyncio.ensure_future(r.run())
@@ -97,6 +97,7 @@ def test_broken_ui_callbacks_do_not_abort_the_batch():
         raise RuntimeError("element was deleted (window closed)")
 
     m = model_with(2)
-    r = BatchRunner(m, lambda *a: None, out="/o", quality="192", fmt="audio", status=boom, log=boom, on_progress=boom)
+    r = BatchRunner(m, lambda *a: None, out="/o", quality="192", fmt="audio", status=boom, log=boom, on_progress=boom,
+                    pace=(0, 0))
     summary = asyncio.run(asyncio.wait_for(r.run(), 5))
     assert summary.skipped == 2

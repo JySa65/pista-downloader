@@ -1,7 +1,8 @@
 import pytest
 
 import pista.core.downloader as dl
-from pista.core.progress import DOWNLOAD_WEIGHT, batch_status, item_progress, phase_for_postprocessor, row_label
+from pista.core.progress import (DOWNLOAD_WEIGHT, batch_status, item_progress, pace_status, phase_for_postprocessor,
+                                 row_label)
 from pista.core.queue import QueueModel, progress_total
 
 from tests.chaos.conftest import track
@@ -37,6 +38,7 @@ def test_batch_status():
     assert batch_status("downloading", 2, 5, "MP3 192 kbps") == "Descargando 2 de 5 · MP3 192 kbps"
     assert batch_status("converting", 2, 5, "MP3 192 kbps") == "Convirtiendo 2 de 5…"
     assert batch_status("merging", 1, 1, "MP4 720p") == "Uniendo audio y video 1 de 1…"
+    assert pace_status(7) == "Pausa de 7 s antes de la siguiente canción para que YouTube no pida verificar que no eres un robot…"
 
 
 def test_overall_progress_has_no_jump_at_the_end_of_the_download():

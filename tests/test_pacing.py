@@ -7,7 +7,8 @@ import pista.core.updates as up
 from pista.core.breaker import Breaker, CooldownActive, YouTubeGate
 from pista.core.models import Track
 from pista.core.plan import plan_download
-from pista.core.queue import BatchRunner, QueueModel
+from pista.core.queue import PACE_MAX, PACE_MIN, BatchRunner, QueueModel
+from tests.chaos.conftest import track
 
 
 class Clock:
@@ -70,7 +71,7 @@ def fake(monkeypatch):
 def test_pacing_and_retry_options():
     o = dl.base_opts(None, None, None)
     assert o["sleep_interval_requests"] == 1
-    assert (o["sleep_interval"], o["max_sleep_interval"]) == (2, 5)
+    assert "sleep_interval" not in o and "max_sleep_interval" not in o  # paced by BatchRunner, not per format
     assert o["extractor_retries"] == 1  # don't let yt-dlp hammer on 429; the breaker handles it
     assert o["retries"] >= 5 and o["fragment_retries"] >= 5  # still resilient to network drops
 
@@ -149,3 +150,49 @@ def test_update_check_runs_at_most_once_per_session(monkeypatch):
     a = up.check_for_updates("0.3.1", fetch=fetch)
     b = up.check_for_updates("0.3.1", fetch=fetch)
     assert a == b and a[0] == "new" and len(n) == 1
+
+
+def paced_batch(n, pace=(5, 10), on_sleep=None):
+    """Run n successful downloads; returns (download order with sleeps between, statuses, logs)."""
+    import asyncio
+    events, statuses, logs = [], [], []
+    m = QueueModel()
+    m.add_tracks([track(i) for i in range(n)])
+
+    async def sleep(seconds):
+        events.append(seconds)
+        if on_sleep:
+            on_sleep(r)
+
+    r = BatchRunner(m, lambda t, *a: events.append(t.id) or f"/o/{t.id}.mp3", out="/o", quality="192",
+                    fmt="audio", sleep=sleep, pace=pace, status=statuses.append,
+                    log=lambda msg, level=0: logs.append(msg))
+    asyncio.run(r.run())
+    return events, statuses, logs
+
+
+def test_default_pace_is_5_to_10_seconds():
+    assert (PACE_MIN, PACE_MAX) == (5, 10)
+
+
+def test_no_pause_before_the_first_download_then_5_to_10_s_between_downloads():
+    events, statuses, logs = paced_batch(3)
+    assert events[0] == "vid00000000"  # the first download starts right away
+    ids = [i for i, e in enumerate(events) if isinstance(e, str)]
+    for a, b in zip(ids, ids[1:]):
+        assert 5 <= sum(events[a + 1:b]) <= 10  # one paced pause between consecutive downloads
+    assert sum(isinstance(e, str) for e in events) == 3
+
+
+def test_the_pause_is_explained_in_the_status_line_and_the_log():
+    _, statuses, logs = paced_batch(2, pace=(7, 7))
+    assert "Pausa de 7 s antes de la siguiente canción para que YouTube no pida verificar que no eres un robot…" in statuses
+    assert any("Pausa de 7 s" in s for s in statuses[1:]) and any("Pausa de 6 s" in s for s in statuses)  # countdown
+    assert sum("robot" in msg for msg in logs) == 1
+
+
+def test_stop_during_the_pause_ends_the_batch_promptly():
+    events, statuses, _ = paced_batch(3, pace=(10, 10), on_sleep=lambda r: r.stop())
+    assert [e for e in events if isinstance(e, str)] == ["vid00000000"]
+    assert sum(isinstance(e, (int, float)) for e in events) == 1  # one step, not the whole 10 s
+    assert statuses[-1] == "Detenido."

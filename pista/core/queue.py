@@ -5,6 +5,7 @@ BatchRunner drives a batch over a QueueModel with an injected download function.
 """
 import asyncio
 import logging
+import random
 import threading
 import time
 import weakref
@@ -17,7 +18,10 @@ from .batch import MAX_ATTEMPTS, Result, Summary, friendly_error, human_size, is
 from .breaker import BREAKER, Breaker, CooldownActive
 from .downloader import Cancelled
 from .models import Track
-from .progress import batch_status, item_progress
+from .progress import batch_status, item_progress, pace_status
+
+# Random pause between downloads, as yt-dlp recommends to stay under YouTube's bot check.
+PACE_MIN, PACE_MAX = 5, 10
 
 STATES = ("queued", "running", "done", "skipped", "error", "stopped")
 FINISHED = ("done", "skipped", "error", "stopped")
@@ -195,7 +199,7 @@ class BatchRunner:
                  retry_delay: float = 10, log: Callable[[str, int], None] = lambda m, lvl=logging.INFO: None,
                  status: Callable[[str], None] = lambda text: None, fmt_text: str = "",
                  on_progress: Callable[[], None] = lambda: None, stop_grace: float = 10.0,
-                 breaker: Breaker = BREAKER) -> None:
+                 breaker: Breaker = BREAKER, pace: tuple[float, float] = (PACE_MIN, PACE_MAX)) -> None:
         self.model, self.download = model, download
         self.out, self.quality, self.fmt, self.fmt_text = out, quality, fmt, fmt_text
         self.run_io, self.sleep, self.retry_delay = run_io, sleep, retry_delay
@@ -211,6 +215,8 @@ class BatchRunner:
         self.results: dict[str, Result] = {}
         self.breaker = breaker
         self.paused = False  # waiting for the YouTube cooldown
+        self.pace = pace  # (min, max) seconds between downloads
+        self._pace_due = False  # no pause before the first download of the run
 
     # --- UI callbacks: a broken one (e.g. window closed) must never abort the batch ---
     def log(self, msg: str, level: int = logging.INFO) -> None:
@@ -264,6 +270,7 @@ class BatchRunner:
             self.log(f"↻ Reintentando {len(again)} fallida(s) en {self.retry_delay:g} s", logging.WARNING)
             await self._cooldown()  # the auto-retry never fires during a cooldown
             await self._wait(self.retry_delay, step=0.1)
+            self._pace_due = False  # the retry delay already was the pause
             await self._run_pending()
 
         stopped = self.cancel.is_set()
@@ -311,6 +318,7 @@ class BatchRunner:
         if not self.breaker.is_open() or self.cancel.is_set():
             return
         self.paused = True
+        self._pace_due = False  # the cooldown already is the pause
         self.log(self.breaker.message(), logging.WARNING)
         try:
             while self.breaker.is_open() and not self.cancel.is_set():
@@ -319,12 +327,28 @@ class BatchRunner:
         finally:
             self.paused = False
 
+    async def _pause(self) -> None:
+        """Random pause between downloads, counted down on the status line (Stop interrupts it).
+
+        Runs while `current` is None, so the UI timer doesn't overwrite the status line."""
+        left = round(random.uniform(*self.pace))
+        self.log(pace_status(left), logging.INFO)
+        while left > 0 and not self.cancel.is_set():
+            self.status(pace_status(left))
+            await self.sleep(1)
+            left -= 1
+
     async def _run_pending(self) -> None:
         m = self.model
         while True:
             await self._cooldown()
             if self.cancel.is_set() or (t := m.next_pending()) is None:
                 break
+            if self._pace_due:
+                self._pace_due = False
+                await self._pause()
+                continue  # re-check the cooldown, Stop and the next track after the pause
+            self._pace_due = True
             attempt = m.fails.get(t.id, 0) + 1
             done = sum(r.state != "error" for r in self.results.values())
             pending = sum(1 for x in m.selected() if m.state[x.id][0] == "queued")
