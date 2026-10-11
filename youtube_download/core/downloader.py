@@ -7,6 +7,7 @@ import yt_dlp
 from yt_dlp.utils import DownloadCancelled, download_range_func, sanitize_filename
 
 from .models import Track
+from .system import find_ffmpeg
 from .urls import video_id, video_url
 
 Cancelled = DownloadCancelled  # raised by download() when cancel_event is set
@@ -95,6 +96,7 @@ def download(
     target = Path(outdir) / sanitize_filename(subfolder) if subfolder else Path(outdir)
     opts = {
         **format_opts(fmt, quality),
+        **_ffmpeg_opts(),
         "noplaylist": True,
         "windowsfilenames": True,  # portable names on every OS (reserved chars, trailing dots/spaces)
         "outtmpl": str(target / "%(title)s.%(ext)s"),
@@ -115,6 +117,11 @@ def download(
     return downloads[0]["filepath"]
 
 
+def _ffmpeg_opts() -> dict:
+    location = find_ffmpeg()
+    return {"ffmpeg_location": location} if location else {}
+
+
 def preview_clip_path(url: str, dest_dir: str | Path) -> Path:
     return Path(dest_dir) / f"{video_id(url)}.mp4"
 
@@ -128,6 +135,7 @@ def preview_clip(url: str, dest_dir: str | Path, seconds: int = 30) -> Path:
         "format": "bv*[height<=360][ext=mp4]+ba[ext=m4a]/b[height<=360]",
         "download_ranges": download_range_func(None, [(0, seconds)]),
         "merge_output_format": "mp4",
+        **_ffmpeg_opts(),
         "windowsfilenames": True,
         "outtmpl": str(path.with_suffix(".%(ext)s")),
         "noplaylist": True,

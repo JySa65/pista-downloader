@@ -1,16 +1,15 @@
 """Download queue, preview dialog and Mix dialog."""
-import tempfile
 import webbrowser
 from collections.abc import Callable
-from pathlib import Path
 
 from nicegui import app, run, ui
 
 from youtube_download.core.downloader import preview_clip
 from youtube_download.core.models import Track
+from youtube_download.core.system import user_cache_dir
 
-PREVIEW_DIR = Path(tempfile.gettempdir()) / "youtube_download_previews"
-PREVIEW_DIR.mkdir(exist_ok=True)
+PREVIEW_DIR = user_cache_dir() / "previews"
+PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
 app.add_media_files("/media", PREVIEW_DIR)
 
 

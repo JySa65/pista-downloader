@@ -7,7 +7,9 @@ import threading
 import time
 from pathlib import Path
 
-from nicegui import app, run, ui
+from nicegui import app, native, run, ui
+
+from youtube_download import version
 
 from youtube_download.core.downloader import Cancelled, download, list_tracks
 from youtube_download.core.system import default_outdir, has_ffmpeg, read_clipboard
@@ -76,7 +78,9 @@ def index() -> None:
 
     # ---------- title bar ----------
     with ui.element("div").classes("yt-bar"):
-        ui.label("YouTube → MP3").classes("text-[13px] font-semibold yt-text2")
+        with ui.row().classes("items-baseline gap-2"):
+            ui.label("YouTube → MP3").classes("text-[13px] font-semibold yt-text2")
+            ui.label(f"v{version()}").classes("mono text-[11px] yt-subtle")
         with ui.element("div").classes("yt-seg"):
             tab_dl = button("Descargar", "on", lambda: show_tab("download"))
             tab_pl = button("Reproductor", "", lambda: show_tab("player"))
@@ -367,4 +371,7 @@ def run_app() -> None:
         ui.run(reload=False, title="YouTube → MP3")
     else:
         app.native.window_args["maximized"] = True  # create_window kwarg: Cocoa, WinForms, GTK and Qt honor it
-        ui.run(native=True, reload=False, title="YouTube → MP3", window_size=(1100, 740))
+        if getattr(sys, "frozen", False) and sys.platform.startswith("linux"):
+            app.native.start_args["gui"] = "qt"  # the Linux build bundles the Qt backend
+        ui.run(native=True, reload=False, title="YouTube → MP3", window_size=(1100, 740),
+               port=native.find_open_port())
