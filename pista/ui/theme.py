@@ -115,7 +115,7 @@ button:disabled { opacity: .45; cursor: default; pointer-events: none; }
 .yt-row.off .dim { opacity: .5; }
 .yt-row > .yt-pill { justify-self: stretch; text-align: center; padding: 4px 0; }
 .yt-qhead { display: grid; grid-template-columns: 20px 64px minmax(0,1fr) var(--col-status) var(--col-actions) var(--col-remove);
-  gap: 14px; padding: 0 25px 6px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+  gap: 14px; padding: 0 25px 6px; width: 100%; box-sizing: border-box; /* same columns as the rows */ font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
   color: var(--subtle); }
 .yt-remove { width: 28px; height: 28px; border: 0; border-radius: 6px; background: transparent; color: var(--muted);
   font-size: 16px; line-height: 1; cursor: pointer; padding: 0; }
