@@ -78,7 +78,8 @@ def index() -> None:
 
     # ---------- title bar ----------
     with ui.element("div").classes("yt-bar"):
-        with ui.row().classes("items-baseline gap-2"):
+        with ui.row().classes("items-center gap-2 no-wrap"):
+            ui.html(theme.ICON_SVG, sanitize=False).classes("w-5 h-5 flex")
             ui.label("YouTube → MP3").classes("text-[13px] font-semibold yt-text2")
             ui.label(f"v{version()}").classes("mono text-[11px] yt-subtle")
         with ui.element("div").classes("yt-seg"):
@@ -368,10 +369,15 @@ def run_app() -> None:
         print("Ventana nativa no disponible (falta pywebview o GTK/Qt); abriendo en el navegador.", file=sys.stderr)
         browser = True
     if browser:
-        ui.run(reload=False, title="YouTube → MP3")
+        ui.run(reload=False, title="YouTube → MP3", favicon=theme.ICON_SVG)
     else:
         app.native.window_args["maximized"] = True  # create_window kwarg: Cocoa, WinForms, GTK and Qt honor it
-        if getattr(sys, "frozen", False) and sys.platform.startswith("linux"):
-            app.native.start_args["gui"] = "qt"  # the Linux build bundles the Qt backend
+        if sys.platform.startswith("linux"):
+            # Window icon is honored only by the GTK/Qt backends; macOS/Windows use the bundle/exe icon.
+            icon = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2] / "packaging")) / "icon.png"
+            if icon.is_file():
+                app.native.start_args["icon"] = str(icon)
+            if getattr(sys, "frozen", False):
+                app.native.start_args["gui"] = "qt"  # the Linux build bundles the Qt backend
         ui.run(native=True, reload=False, title="YouTube → MP3", window_size=(1100, 740),
-               port=native.find_open_port())
+               port=native.find_open_port(), favicon=theme.ICON_SVG)

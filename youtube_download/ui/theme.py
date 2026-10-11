@@ -1,6 +1,17 @@
 """Design tokens and component classes from the Claude Design mockup (light + dark)."""
 from nicegui import ui
 
+# App icon "1c · Onda" from the design (title-bar size: tile outline stroke 3). Source of truth: packaging/icon.svg.
+ICON_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 100 100">'
+    '<rect x="2" y="2" width="96" height="96" rx="22" fill="#f6f6f8" stroke="#d8dade" stroke-width="3"/>'
+    '<rect x="24" y="40" width="8" height="20" rx="4" fill="#3d82d1"/>'
+    '<rect x="36" y="28" width="8" height="44" rx="4" fill="#3d82d1"/>'
+    '<rect x="48" y="20" width="8" height="60" rx="4" fill="#17181a"/>'
+    '<rect x="60" y="32" width="8" height="36" rx="4" fill="#3d82d1"/>'
+    '<rect x="72" y="42" width="8" height="16" rx="4" fill="#3d82d1"/></svg>'
+)
+
 FONTS = (
     '<link rel="preconnect" href="https://fonts.googleapis.com">'
     '<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600'

@@ -95,11 +95,13 @@ def pyinstaller(ffmpeg_dir: Path) -> None:
     import nicegui
 
     exe = ".exe" if target() == "windows" else ""
+    icon = PKG / {"macos": "icon.icns", "windows": "icon.ico"}.get(target(), "icon.png")
     sep = os.pathsep  # PyInstaller SRC<sep>DEST; ';' avoids clashing with Windows drive colons
     args = ["--noconfirm", "--clean", "--name", NAME, "--windowed", "--onedir",
-            "--icon", PKG / "icon.png", "--osx-bundle-identifier", "io.github.jysa65.youtubedownload",
+            "--icon", icon, "--osx-bundle-identifier", "io.github.jysa65.youtubedownload",
             "--add-data", f"{Path(nicegui.__file__).parent}{sep}nicegui",
             "--add-data", f"{ROOT / 'pyproject.toml'}{sep}.",
+            "--add-data", f"{PKG / 'icon.png'}{sep}.",  # Linux window icon
             "--add-binary", f"{ffmpeg_dir / ('ffmpeg' + exe)}{sep}ffmpeg",
             "--add-binary", f"{ffmpeg_dir / ('ffprobe' + exe)}{sep}ffmpeg"]
     for lic in ffmpeg_dir.glob("LICENSE*"):
@@ -124,7 +126,7 @@ def package_macos(v: str) -> Path:
 
 def package_windows(v: str) -> Path:
     iscc = shutil.which("iscc") or r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-    run(iscc, f"/DAppVersion={v}", f"/DSourceDir={DIST / NAME}", f"/DOutputDir={DIST}", PKG / "installer.iss")
+    run(iscc, f"/DAppVersion={v}", f"/DIconFile={PKG / 'icon.ico'}", f"/DSourceDir={DIST / NAME}", f"/DOutputDir={DIST}", PKG / "installer.iss")
     return DIST / f"{NAME}-Setup-{v}.exe"
 
 
@@ -133,6 +135,7 @@ def package_linux(v: str) -> Path:
     shutil.rmtree(appdir, ignore_errors=True)
     shutil.copytree(DIST / NAME, appdir / "usr" / "lib" / NAME, symlinks=True)
     shutil.copy(PKG / "icon.png", appdir / f"{NAME}.png")
+    shutil.copy(PKG / "icon.png", appdir / ".DirIcon")
     (appdir / f"{NAME}.desktop").write_text(
         f"[Desktop Entry]\nType=Application\nName=YouTube Download\nExec={NAME}\nIcon={NAME}\n"
         "Categories=AudioVideo;Network;\n")

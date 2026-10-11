@@ -1,5 +1,8 @@
 ; Inno Setup script. Built by packaging/build.py:
 ;   ISCC /DAppVersion=0.1.0 /DSourceDir=dist\YouTubeDownload /DOutputDir=dist packaging\installer.iss
+#ifndef IconFile
+  #define IconFile "icon.ico"
+#endif
 #ifndef AppVersion
   #define AppVersion "0.0.0"
 #endif
@@ -20,6 +23,7 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+SetupIconFile={#IconFile}
 UninstallDisplayIcon={app}\YouTubeDownload.exe
 
 [Languages]
