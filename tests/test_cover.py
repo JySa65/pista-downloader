@@ -1,6 +1,6 @@
 from mutagen.id3 import APIC, ID3
 
-from youtube_download.core.library import cover_bytes, scan
+from pista.core.library import cover_bytes, scan
 
 
 def test_cover_bytes_reads_embedded_picture(tmp_path):

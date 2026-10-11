@@ -1,7 +1,7 @@
 import logging
 
-from youtube_download.core.batch import Result, human_size, human_time, short_error, summarize
-from youtube_download.core.applog import setup_logging
+from pista.core.batch import Result, human_size, human_time, short_error, summarize
+from pista.core.applog import setup_logging
 
 
 def test_summarize_counts_sizes_failures_and_first_new():
@@ -45,20 +45,20 @@ def test_human_size_and_time():
 
 def test_setup_logging_writes_rotating_file(tmp_path):
     path = setup_logging(tmp_path)
-    logging.getLogger("youtube_download.yt_dlp").warning("hello %s", "world")
-    logging.getLogger("youtube_download").info("x" * 3000)
-    for h in logging.getLogger("youtube_download").handlers:
+    logging.getLogger("pista.yt_dlp").warning("hello %s", "world")
+    logging.getLogger("pista").info("x" * 3000)
+    for h in logging.getLogger("pista").handlers:
         h.flush()
     text = path.read_text("utf-8")
-    assert path.name == "youtube-download.log"
-    assert "WARNING youtube_download.yt_dlp: hello world" in text
+    assert path.name == "pista.log"
+    assert "WARNING pista.yt_dlp: hello world" in text
     assert "x" * 3000 in text  # full, untruncated lines
     setup_logging(tmp_path)  # idempotent: no duplicate handlers
-    assert len([h for h in logging.getLogger("youtube_download").handlers if getattr(h, "_ytmp3", False)]) == 1
+    assert len([h for h in logging.getLogger("pista").handlers if getattr(h, "_pista", False)]) == 1
 
 
 def test_status_label_for_queue_states():
-    from youtube_download.core.batch import MAX_ATTEMPTS, status_label
+    from pista.core.batch import MAX_ATTEMPTS, status_label
 
     assert MAX_ATTEMPTS == 3
     assert status_label("queued", 0, 0) == "En cola"

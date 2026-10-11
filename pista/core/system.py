@@ -45,7 +45,8 @@ def default_outdir(home: Path | None = None) -> Path:
     return next((p for p in (home / "Music", home / "Downloads") if p.is_dir()), home)
 
 
-APP_NAME = "YouTubeDownload"
+APP_NAME = "pista"
+LEGACY_APP_NAME = "YouTubeDownload"  # name of the per-user dir before the rename to Pista (<= 0.2.x)
 
 
 def bundled_dirs(frozen: bool, meipass: str | None, executable: str) -> list[Path]:
@@ -130,12 +131,39 @@ def log_dir() -> Path:
     return user_cache_dir() / "logs"
 
 
+def migrate_legacy(old: Path, new: Path) -> list[Path]:
+    """Move logs and preview clips from the pre-rename dir into the new one (best effort, never overwrites).
+
+    Returns the moved files (their new paths). Removes the old dir once it is empty.
+    """
+    moved: list[Path] = []
+    if not old.is_dir():
+        return moved
+    for sub in ("logs", "previews"):
+        for f in sorted((old / sub).glob("*")) if (old / sub).is_dir() else []:
+            dest = new / sub / f.name
+            if not f.is_file() or dest.exists():
+                continue
+            try:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(f), dest)
+                moved.append(dest)
+            except OSError:
+                continue
+    for d in sorted((p for p in old.rglob("*") if p.is_dir()), reverse=True) + [old]:
+        try:
+            d.rmdir()  # only succeeds when empty
+        except OSError:
+            pass
+    return moved
+
+
 def user_cache_dir(platform: str = sys.platform, env: Mapping[str, str] = os.environ,
-                   home: Path | None = None) -> Path:
+                   home: Path | None = None, app: str = APP_NAME) -> Path:
     """Per-user writable cache dir (never inside the app bundle)."""
     home = home or Path.home()
     if platform == "win32":
-        return Path(env.get("LOCALAPPDATA") or home / "AppData" / "Local") / APP_NAME / "Cache"
+        return Path(env.get("LOCALAPPDATA") or home / "AppData" / "Local") / app / "Cache"
     if platform == "darwin":
-        return home / "Library" / "Caches" / APP_NAME
-    return Path(env.get("XDG_CACHE_HOME") or home / ".cache") / APP_NAME
+        return home / "Library" / "Caches" / app
+    return Path(env.get("XDG_CACHE_HOME") or home / ".cache") / app

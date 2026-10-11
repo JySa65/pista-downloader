@@ -7,8 +7,8 @@ from urllib.parse import quote
 
 from nicegui import app, ui
 
-from youtube_download.core.library import cover_bytes, scan, split_artist
-from youtube_download.core.system import default_outdir
+from pista.core.library import cover_bytes, scan, split_artist
+from pista.core.system import default_outdir
 
 from .components import button, hhmmss
 

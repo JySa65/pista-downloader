@@ -5,11 +5,11 @@ from pathlib import Path
 
 from nicegui import app, run, ui
 
-from youtube_download.core.batch import Summary, human_size, human_time, status_label
-from youtube_download.core.downloader import preview_clip
-from youtube_download.core.models import Track
-from youtube_download.core.plan import Plan
-from youtube_download.core.system import user_cache_dir
+from pista.core.batch import Summary, human_size, human_time, status_label
+from pista.core.downloader import preview_clip
+from pista.core.models import Track
+from pista.core.plan import Plan
+from pista.core.system import user_cache_dir
 
 PREVIEW_DIR = user_cache_dir() / "previews"
 PREVIEW_DIR.mkdir(parents=True, exist_ok=True)

@@ -1,4 +1,4 @@
-from youtube_download.core.library import scan, split_artist
+from pista.core.library import scan, split_artist
 
 
 def test_split_artist_on_first_dash():

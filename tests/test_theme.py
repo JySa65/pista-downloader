@@ -8,7 +8,7 @@ from pathlib import Path
 
 import nicegui
 
-from youtube_download.ui import app as app_module, components, player, theme
+from pista.ui import app as app_module, components, player, theme
 
 UI_FILES = [Path(m.__file__) for m in (app_module, components, player, theme)]
 

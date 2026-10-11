@@ -4,9 +4,9 @@
     uv run python packaging/build.py [--ffmpeg-dir DIR] [--check-tag vX.Y.Z]
 
 Output in dist/:
-  macOS   YouTubeDownload-<v>-macos-arm64.dmg (unsigned .app inside)
-  Windows YouTubeDownload-Setup-<v>.exe        (Inno Setup; needs ISCC.exe)
-  Linux   YouTubeDownload-<v>-x86_64.AppImage  (Qt backend bundled)
+  macOS   Pista-<v>-macos-arm64.dmg (unsigned .app inside)
+  Windows Pista-Setup-<v>.exe        (Inno Setup; needs ISCC.exe)
+  Linux   Pista-<v>-x86_64.AppImage  (Qt backend bundled)
 
 ffmpeg/ffprobe are LGPL builds: BtbN `*-lgpl` archives on Windows/Linux (pinned + SHA256 below),
 compiled from pinned sources on macOS (build_ffmpeg_macos.sh).
@@ -28,7 +28,7 @@ NOTICES = ROOT / ".github" / "THIRD_PARTY_NOTICES.md"
 PKG = ROOT / "packaging"
 BUILD = ROOT / "build"
 DIST = ROOT / "dist"
-NAME = "YouTubeDownload"
+NAME = "Pista"
 
 BTBN = "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-10-13-04/"
 # ponytail: BtbN prunes old autobuilds; when a URL 404s, bump to a newer autobuild and its SHA256.
@@ -101,7 +101,7 @@ def pyinstaller(ffmpeg_dir: Path) -> None:
     icon = PKG / {"macos": "icon.icns", "windows": "icon.ico"}.get(target(), "icon.png")
     sep = os.pathsep  # PyInstaller SRC<sep>DEST; ';' avoids clashing with Windows drive colons
     args = ["--noconfirm", "--clean", "--name", NAME, "--windowed", "--onedir",
-            "--icon", icon, "--osx-bundle-identifier", "io.github.jysa65.youtubedownload",
+            "--icon", icon, "--osx-bundle-identifier", "io.github.jysa65.pista",
             "--add-data", f"{Path(nicegui.__file__).parent}{sep}nicegui",
             "--add-data", f"{ROOT / 'pyproject.toml'}{sep}.",
             "--add-data", f"{PKG / 'icon.png'}{sep}.",  # Linux window icon
@@ -177,7 +177,7 @@ def package_linux(v: str) -> Path:
     shutil.copy(PKG / "icon.png", appdir / f"{NAME}.png")
     shutil.copy(PKG / "icon.png", appdir / ".DirIcon")
     (appdir / f"{NAME}.desktop").write_text(
-        f"[Desktop Entry]\nType=Application\nName=YouTube Download\nExec={NAME}\nIcon={NAME}\n"
+        f"[Desktop Entry]\nType=Application\nName=Pista\nComment=Descarga audio y video\nExec={NAME}\nIcon={NAME}\n"
         "Categories=AudioVideo;Network;\n")
     apprun = appdir / "AppRun"
     apprun.write_text(f'#!/bin/sh\nHERE="$(dirname "$(readlink -f "$0")")"\nexec "$HERE/usr/lib/{NAME}/{NAME}" "$@"\n')

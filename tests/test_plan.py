@@ -1,5 +1,5 @@
-from youtube_download.core.models import Track
-from youtube_download.core.plan import archived_ids, estimate_bytes, plan_download, video_sizes
+from pista.core.models import Track
+from pista.core.plan import archived_ids, estimate_bytes, plan_download, video_sizes
 
 
 def t(id_, dur=200, sizes=None):

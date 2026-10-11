@@ -28,8 +28,8 @@ Never add real music or other copyrighted media to the repository: no IDs, title
 
 ```
 main.py                     entry point (only starts the app)
-youtube_download/core/      URL classification, yt-dlp wrapper, library scan, logging, OS helpers — no UI imports
-youtube_download/ui/        NiceGUI app: app.py (page), components.py (queue, dialogs), player.py, theme.py (design tokens)
+pista/core/                 URL classification, yt-dlp wrapper, library scan, logging, OS helpers — no UI imports
+pista/ui/                   NiceGUI app: app.py (page), components.py (queue, dialogs), player.py, theme.py (design tokens)
 tests/                      unit tests (core logic and UI invariants)
 packaging/                  build.py (PyInstaller + Inno Setup / .dmg / AppImage), LGPL ffmpeg build, icons
 .github/workflows/          release builds and the weekly yt-dlp update

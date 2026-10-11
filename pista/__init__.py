@@ -1,4 +1,4 @@
-"""YouTube downloader desktop app."""
+"""Pista: desktop app to download audio and video with yt-dlp, and play it."""
 import sys
 import tomllib
 from pathlib import Path

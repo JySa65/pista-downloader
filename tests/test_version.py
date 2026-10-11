@@ -1,7 +1,7 @@
 import tomllib
 from pathlib import Path
 
-from youtube_download import version
+from pista import version
 
 
 def test_version_comes_from_pyproject():

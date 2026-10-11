@@ -1,24 +1,28 @@
-# YouTube → MP3
+# Pista
+
+**Descarga audio y video.**
 
 [![Release](https://img.shields.io/github/v/release/JySa65/pista-downloader?sort=semver)](https://github.com/JySa65/pista-downloader/releases/latest)
 [![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 [![Build](https://github.com/JySa65/pista-downloader/actions/workflows/release.yml/badge.svg)](https://github.com/JySa65/pista-downloader/actions/workflows/release.yml)
 
-A free, open-source desktop app for Windows, macOS and Linux that downloads YouTube videos, playlists and Mixes as **MP3 or MP4** with [yt-dlp](https://github.com/yt-dlp/yt-dlp), and includes a small player for the downloaded files. The installers bundle everything they need (ffmpeg, a JavaScript runtime), so there is nothing else to install.
+**Pista** is a free, open-source desktop app for Windows, macOS and Linux that downloads YouTube videos, playlists and Mixes as **MP3 or MP4** with [yt-dlp](https://github.com/yt-dlp/yt-dlp), and includes a small player for the downloaded files. The installers bundle everything they need (ffmpeg, a JavaScript runtime), so there is nothing else to install.
 
-Aplicación de escritorio libre y gratuita para Windows, macOS y Linux que descarga videos, listas y Mixes de YouTube como **MP3 o MP4** con yt-dlp, con un reproductor para lo descargado.
+**Pista** es una aplicación de escritorio libre y gratuita para Windows, macOS y Linux que descarga videos, listas y Mixes de YouTube como **MP3 o MP4** con yt-dlp, con un reproductor para lo descargado.
 
 > **Aviso legal / Legal notice** — see [below](#aviso-legal--legal-notice).
 
 ## Descargar e instalar
 
+> Pista was called «YouTube → MP3» up to v0.2.x. Installing Pista on Windows replaces the old app (same installer id); its logs and preview cache move to the new folder on first run. On macOS, drag the old «YouTubeDownload» app to the Trash. Your downloads and the `.downloaded-*.txt` files in your music folder are untouched.
+
 Download the installer for your system from the repository's **Releases** page (latest version at the top). Nothing else is needed: ffmpeg comes bundled.
 
 | System | File | Install |
 |--------|------|---------|
-| Windows 10 y 11 (64 bits) | `YouTubeDownload-Setup-<version>.exe` | Run it and follow the wizard (Start Menu entry, optional desktop shortcut, uninstall from *Settings → Apps*). The app uses Microsoft Edge WebView2: Windows 11 includes it, and on Windows 10 the installer checks for it and, if missing, installs it with Microsoft's bootstrapper (needs internet once). SmartScreen may warn because the installer is unsigned: *More info → Run anyway*. |
-| macOS (Apple Silicon) | `YouTubeDownload-<version>-macos-arm64.dmg` | Open the .dmg and drag **YouTubeDownload** to *Applications*. The app is unsigned, so the first time **right-click → Open → Open** (or *System Settings → Privacy & Security → Open Anyway*). |
-| Linux (x86_64, glibc 2.35+) | `YouTubeDownload-<version>-x86_64.AppImage` | `chmod +x YouTubeDownload-*.AppImage` and run it. The Qt web engine is bundled; a desktop with X11/Wayland plus the usual `libnss3`, `libxkbcommon-x11-0` and `libxcb-cursor0` libraries is required. If the AppImage won't start, install `libfuse2` or run it with `--appimage-extract-and-run`. |
+| Windows 10 y 11 (64 bits) | `Pista-Setup-<version>.exe` | Run it and follow the wizard (Start Menu entry, optional desktop shortcut, uninstall from *Settings → Apps*). The app uses Microsoft Edge WebView2: Windows 11 includes it, and on Windows 10 the installer checks for it and, if missing, installs it with Microsoft's bootstrapper (needs internet once). SmartScreen may warn because the installer is unsigned: *More info → Run anyway*. |
+| macOS (Apple Silicon) | `Pista-<version>-macos-arm64.dmg` | Open the .dmg and drag **Pista** to *Applications*. The app is unsigned, so the first time **right-click → Open → Open** (or *System Settings → Privacy & Security → Open Anyway*). |
+| Linux (x86_64, glibc 2.35+) | `Pista-<version>-x86_64.AppImage` | `chmod +x Pista-*.AppImage` and run it. The Qt web engine is bundled; a desktop with X11/Wayland plus the usual `libnss3`, `libxkbcommon-x11-0` and `libxcb-cursor0` libraries is required. If the AppImage won't start, install `libfuse2` or run it with `--appimage-extract-and-run`. |
 
 The bundled ffmpeg/ffprobe are LGPL builds (Windows/Linux: [BtbN FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds) `lgpl` variant; macOS: compiled from the official ffmpeg 8.1.3 and LAME 3.100 sources by `packaging/build_ffmpeg_macos.sh`). Their license texts are shipped next to the binaries (`ffmpeg/LICENSE-*.txt` inside the app).
 
@@ -37,7 +41,7 @@ YouTube now requires solving JavaScript challenges; without a JS runtime yt-dlp 
 | Windows 10/11 (64-bit) | `winget install ffmpeg` (or `choco install ffmpeg`) | WebView2 (included in Windows 11; on Windows 10 install the [Evergreen runtime](https://developer.microsoft.com/microsoft-edge/webview2/) if missing) |
 | Linux (Debian/Ubuntu) | `sudo apt install ffmpeg` | GTK: `sudo apt install python3-gi gir1.2-webkit2-4.1`, or Qt: `uv pip install "pywebview[qt]"` |
 
-If the native window can't be used (e.g. Linux without GTK/Qt) the app opens in your browser instead. You can force that with `uv run main.py --browser` or `YTMP3_BROWSER=1`.
+If the native window can't be used (e.g. Linux without GTK/Qt) the app opens in your browser instead. You can force that with `uv run main.py --browser` or `PISTA_BROWSER=1`.
 
 **Pegar** reads the clipboard with `pbpaste` (macOS), PowerShell `Get-Clipboard` (Windows) or `wl-paste` / `xclip` / `xsel` (Linux). If none is available, paste into the field with Ctrl/Cmd+V.
 
@@ -58,7 +62,7 @@ The window opens maximized.
 5. Failed tracks are retried once automatically 10 s after the batch; after that, a red row shows the short reason and **↻ Reintentar**.
 6. When the batch ends (or is stopped) a **summary** shows downloaded / already there / failed / stopped, total size, time and folder, with **Ir al reproductor**, **Abrir carpeta** and **Reintentar fallidas**. **Ver resumen** reopens it.
 
-**Registro** (below the queue) shows the last line; **Expandir** shows the full lines and **Abrir registro** the whole log file, with a button to show it in Finder / Explorer / the file manager. The file is `youtube-download.log` (rotating, 2 MB × 4) in the per-user cache folder: `~/Library/Caches/YouTubeDownload/logs` (macOS), `%LOCALAPPDATA%\YouTubeDownload\Cache\logs` (Windows), `~/.cache/YouTubeDownload/logs` (Linux). It includes yt-dlp's own warnings and errors, so attach it when reporting a problem.
+**Registro** (below the queue) shows the last line; **Expandir** shows the full lines and **Abrir registro** the whole log file, with a button to show it in Finder / Explorer / the file manager. The file is `pista.log` (rotating, 2 MB × 4) in the per-user cache folder: `~/Library/Caches/pista/logs` (macOS), `%LOCALAPPDATA%\pista\Cache\logs` (Windows), `~/.cache/pista/logs` (Linux). Your home folder appears as `~`. It includes yt-dlp's own warnings and errors, so attach it when reporting a problem.
 
 URL types:
 
@@ -86,7 +90,7 @@ Lists the MP3 and MP4 files in the download folder (or another folder from the f
 uv run pytest -q
 ```
 
-`youtube_download/core` (URL classification, yt-dlp wrapper, library scan, OS helpers) has no UI dependency. `youtube_download/ui` is the NiceGUI app; the design tokens live in `ui/theme.py`.
+`pista/core` (URL classification, yt-dlp wrapper, library scan, OS helpers) has no UI dependency. `pista/ui` is the NiceGUI app; the design tokens live in `ui/theme.py`.
 
 ## Publicar una versión
 

@@ -1,6 +1,6 @@
 import pytest
 
-from youtube_download.core.urls import classify, video_url
+from pista.core.urls import classify, video_url
 
 MIX = "https://www.youtube.com/watch?v=AAAAAAAAAAA&list=RDTESTMIX0123456789&start_radio=1"
 

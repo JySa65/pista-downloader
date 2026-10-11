@@ -1,5 +1,5 @@
 ; Inno Setup script. Built by packaging/build.py:
-;   ISCC /DAppVersion=0.1.0 /DSourceDir=dist\YouTubeDownload /DOutputDir=dist packaging\installer.iss
+;   ISCC /DAppVersion=0.1.0 /DSourceDir=dist\Pista /DOutputDir=dist packaging\installer.iss
 #ifndef IconFile
   #define IconFile "icon.ico"
 #endif
@@ -18,15 +18,20 @@
 
 [Setup]
 AppId={{8F6C2B7E-3D41-4C5A-9E2F-6B1D7A0C5E93}
-AppName=YouTube Download
+AppName=Pista
+AppVerName=Pista {#AppVersion}
 AppVersion={#AppVersion}
 AppPublisher=JySa65
-DefaultDirName={autopf}\YouTubeDownload
-DefaultGroupName=YouTube Download
+DefaultDirName={autopf}\Pista
+; Same AppId as <= 0.2.x («YouTube Download»): installing over it upgrades it (one entry in Apps).
+; Don't reuse the old folder name; the old files are removed in [InstallDelete].
+UsePreviousAppDir=no
+UsePreviousGroup=no
+DefaultGroupName=Pista
 DisableProgramGroupPage=yes
 PrivilegesRequiredOverridesAllowed=dialog
 OutputDir={#OutputDir}
-OutputBaseFilename=YouTubeDownload-Setup-{#AppVersion}
+OutputBaseFilename=Pista-Setup-{#AppVersion}
 LicenseFile={#LicenseFile}
 Compression=lzma2
 SolidCompression=yes
@@ -36,7 +41,7 @@ MinVersion=10.0
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 SetupIconFile={#IconFile}
-UninstallDisplayIcon={app}\YouTubeDownload.exe
+UninstallDisplayIcon={app}\Pista.exe
 
 [Languages]
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
@@ -45,6 +50,16 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
+[InstallDelete]
+; Leftovers of the pre-rename app (<= 0.2.x), installed per-machine or per-user. Its uninstall entry is
+; replaced by this one because the AppId is the same.
+Type: filesandordirs; Name: "{commonpf64}\YouTubeDownload"
+Type: filesandordirs; Name: "{userpf}\YouTubeDownload"
+Type: filesandordirs; Name: "{commonprograms}\YouTube Download"
+Type: filesandordirs; Name: "{userprograms}\YouTube Download"
+Type: files; Name: "{commondesktop}\YouTube Download.lnk"
+Type: files; Name: "{userdesktop}\YouTube Download.lnk"
+
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#LicenseFile}"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
@@ -52,14 +67,14 @@ Source: "{#NoticesFile}"; DestDir: "{app}"; DestName: "THIRD_PARTY_NOTICES.md"; 
 Source: "{#WebView2Setup}"; DestDir: "{tmp}"; Flags: deleteafterinstall; Check: not IsWebView2Installed
 
 [Icons]
-Name: "{group}\YouTube Download"; Filename: "{app}\YouTubeDownload.exe"
-Name: "{group}\{cm:UninstallProgram,YouTube Download}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\YouTube Download"; Filename: "{app}\YouTubeDownload.exe"; Tasks: desktopicon
+Name: "{group}\Pista"; Filename: "{app}\Pista.exe"
+Name: "{group}\{cm:UninstallProgram,Pista}"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\Pista"; Filename: "{app}\Pista.exe"; Tasks: desktopicon
 
 [Run]
 ; Windows 11 ships WebView2; some Windows 10 installs don't. Install it only when missing.
 Filename: "{tmp}\MicrosoftEdgeWebview2Setup.exe"; Parameters: "/silent /install"; StatusMsg: "Instalando Microsoft Edge WebView2..."; Flags: waituntilterminated; Check: not IsWebView2Installed
-Filename: "{app}\YouTubeDownload.exe"; Description: "{cm:LaunchProgram,YouTube Download}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\Pista.exe"; Description: "{cm:LaunchProgram,Pista}"; Flags: nowait postinstall skipifsilent
 
 [Code]
 const

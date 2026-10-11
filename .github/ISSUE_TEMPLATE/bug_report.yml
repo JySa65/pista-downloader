@@ -95,12 +95,12 @@ body:
       description: |
         **Optional, but it usually makes the difference.** / **Opcional, pero suele ser clave.**
 
-        How to get it / Cómo obtenerlo: in the app press **Abrir registro**, then **Mostrar en Finder** (macOS) / **Mostrar en el Explorador** (Windows) / **Mostrar en la carpeta** (Linux), and **drag `youtube-download.log` into this box**. GitHub accepts `.log` and `.txt` attachments. You can also paste just the relevant lines.
+        How to get it / Cómo obtenerlo: in the app press **Abrir registro**, then **Mostrar en Finder** (macOS) / **Mostrar en el Explorador** (Windows) / **Mostrar en la carpeta** (Linux), and **drag `pista.log` into this box**. GitHub accepts `.log` and `.txt` attachments. You can also paste just the relevant lines.
 
         Location / Ubicación:
-        - Windows: `%LOCALAPPDATA%\YouTubeDownload\Cache\logs\youtube-download.log`
-        - macOS: `~/Library/Caches/YouTubeDownload/logs/youtube-download.log`
-        - Linux: `~/.cache/YouTubeDownload/logs/youtube-download.log` (or `$XDG_CACHE_HOME/...`)
+        - Windows: `%LOCALAPPDATA%\pista\Cache\logs\pista.log`
+        - macOS: `~/Library/Caches/pista/logs/pista.log`
+        - Linux: `~/.cache/pista/logs/pista.log` (or `$XDG_CACHE_HOME/...`)
 
         Privacy / Privacidad: your home folder is already replaced with `~` in the log, so it doesn't show your user name. Links you downloaded **are** visible: delete any private links before attaching. / Tu carpeta personal ya aparece como `~`. Los links sí se ven: borra los privados antes de adjuntar.
     validations:

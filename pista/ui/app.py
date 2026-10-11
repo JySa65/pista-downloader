@@ -12,18 +12,18 @@ from pathlib import Path
 
 from nicegui import app, native, run, ui
 
-from youtube_download import version
-from youtube_download.core.applog import setup_logging
-from youtube_download.core.batch import MAX_ATTEMPTS, Result, human_size, human_time, short_error, summarize
-from youtube_download.core.downloader import ARCHIVES, Cancelled, download, list_tracks
-from youtube_download.core.plan import archived_ids, plan_download
+from pista import version
+from pista.core.applog import setup_logging
+from pista.core.batch import MAX_ATTEMPTS, Result, human_size, human_time, short_error, summarize
+from pista.core.downloader import ARCHIVES, Cancelled, download, list_tracks
+from pista.core.plan import archived_ids, plan_download
 from yt_dlp.version import __version__ as yt_dlp_version
 
-from youtube_download.core.system import (
-    default_outdir, find_deno, find_ffmpeg, has_ffmpeg, log_dir, open_path, read_clipboard, reveal_label, reveal_path,
+from pista.core.system import (
+    LEGACY_APP_NAME, migrate_legacy, user_cache_dir, default_outdir, find_deno, find_ffmpeg, has_ffmpeg, log_dir, open_path, read_clipboard, reveal_label, reveal_path,
 )
-from youtube_download.core.report import current_os, issue_url
-from youtube_download.core.urls import classify
+from pista.core.report import current_os, issue_url
+from pista.core.urls import classify
 
 from . import theme
 from .components import Queue, ask_mix, button, close_dialogs, confirm_dialog, log_class, log_file_dialog, summary_dialog
@@ -36,7 +36,7 @@ FFMPEG_MISSING = ("No se encontró ffmpeg. Instálalo para descargar (macOS: bre
 FORMATS = {"audio": "Audio · MP3", "video": "Video · MP4"}
 TAGS = {"video": "Video", "playlist": "Playlist", "mix": "Mix"}
 RETRY_DELAY = 10  # seconds before the automatic second attempt of failed items
-logger = logging.getLogger("youtube_download")
+logger = logging.getLogger("pista")
 
 
 async def pick_folder(start: str) -> str | None:
@@ -114,7 +114,7 @@ def index() -> None:
     with ui.element("div").classes("yt-bar"):
         with ui.row().classes("items-center gap-2 no-wrap"):
             ui.html(theme.ICON_SVG, sanitize=False).classes("w-5 h-5 flex")
-            ui.label("YouTube → MP3").classes("text-[13px] font-semibold yt-text2")
+            ui.label("Pista").classes("text-[13px] font-semibold yt-text2")
             ui.label(f"v{version()}").classes("mono text-[11px] yt-subtle") \
                 .props('title="Licencia GPLv3 (GNU General Public License v3.0 o posterior)"')
         with ui.element("div").classes("yt-seg"):
@@ -551,12 +551,14 @@ def native_available() -> bool:
 
 
 def run_app() -> None:
-    browser = "--browser" in sys.argv or os.environ.get("YTMP3_BROWSER") == "1"
+    migrate_legacy(user_cache_dir(app=LEGACY_APP_NAME), user_cache_dir())  # <= 0.2.x logs and preview cache
+    # YTMP3_BROWSER: pre-rename name of the same switch, still honored.
+    browser = "--browser" in sys.argv or "1" in (os.environ.get("PISTA_BROWSER"), os.environ.get("YTMP3_BROWSER"))
     if not browser and not native_available():
         print("Ventana nativa no disponible (falta pywebview o GTK/Qt); abriendo en el navegador.", file=sys.stderr)
         browser = True
     if browser:
-        ui.run(reload=False, title="YouTube → MP3", favicon=theme.ICON_SVG)
+        ui.run(reload=False, title="Pista", favicon=theme.ICON_SVG)
     else:
         app.native.window_args["maximized"] = True  # create_window kwarg: Cocoa, WinForms, GTK and Qt honor it
         if sys.platform.startswith("linux"):
@@ -566,5 +568,5 @@ def run_app() -> None:
                 app.native.start_args["icon"] = str(icon)
             if getattr(sys, "frozen", False):
                 app.native.start_args["gui"] = "qt"  # the Linux build bundles the Qt backend
-        ui.run(native=True, reload=False, title="YouTube → MP3", window_size=(1100, 740),
+        ui.run(native=True, reload=False, title="Pista", window_size=(1100, 740),
                port=native.find_open_port(), favicon=theme.ICON_SVG)

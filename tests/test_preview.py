@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from youtube_download.core.downloader import preview_clip, preview_clip_path
+from pista.core.downloader import preview_clip, preview_clip_path
 
 
 def test_preview_clip_path_is_per_video_id(tmp_path):

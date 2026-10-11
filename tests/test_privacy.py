@@ -1,8 +1,8 @@
 import logging
 from urllib.parse import parse_qs, urlparse
 
-from youtube_download.core.applog import redact, setup_logging
-from youtube_download.core.report import REPO, issue_url, os_label
+from pista.core.applog import redact, setup_logging
+from pista.core.report import REPO, issue_url, os_label
 
 
 def test_redact_home_posix():
@@ -21,8 +21,8 @@ def test_log_file_is_anonymized(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "home" / "ana"))
     monkeypatch.setenv("USERPROFILE", str(tmp_path / "home" / "ana"))  # Path.home() on Windows
     path = setup_logging(tmp_path / "logs")
-    logging.getLogger("youtube_download").info("✓ %s/Music/song.mp3", str(tmp_path / "home" / "ana"))
-    for h in logging.getLogger("youtube_download").handlers:
+    logging.getLogger("pista").info("✓ %s/Music/song.mp3", str(tmp_path / "home" / "ana"))
+    for h in logging.getLogger("pista").handlers:
         h.flush()
     text = path.read_text("utf-8")
     assert "✓ ~/Music/song.mp3" in text and "home/ana" not in text

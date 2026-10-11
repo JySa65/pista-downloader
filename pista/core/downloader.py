@@ -15,7 +15,7 @@ from .urls import video_id, video_url
 
 Cancelled = DownloadCancelled  # raised by download() when cancel_event is set
 
-log = logging.getLogger("youtube_download.yt_dlp")
+log = logging.getLogger("pista.yt_dlp")
 
 ARCHIVES = {"audio": ".downloaded-audio.txt", "video": ".downloaded-video.txt"}
 

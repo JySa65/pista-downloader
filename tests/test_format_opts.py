@@ -1,6 +1,6 @@
 import pytest
 
-from youtube_download.core.downloader import ARCHIVES, format_opts
+from pista.core.downloader import ARCHIVES, format_opts
 
 
 def test_audio_extracts_mp3_at_kbps():
@@ -33,7 +33,7 @@ def test_separate_archive_per_format():
 
 
 def test_base_opts_wires_tools_retries_and_logger():
-    from youtube_download.core.downloader import base_opts
+    from pista.core.downloader import base_opts
 
     logger = object()
     opts = base_opts(ffmpeg="/ff", deno="/d/deno", logger=logger)
@@ -45,7 +45,7 @@ def test_base_opts_wires_tools_retries_and_logger():
 
 
 def test_base_opts_without_tools_leaves_yt_dlp_defaults():
-    from youtube_download.core.downloader import base_opts
+    from pista.core.downloader import base_opts
 
     opts = base_opts(ffmpeg=None, deno=None, logger=None)
     assert "ffmpeg_location" not in opts and "js_runtimes" not in opts and "logger" not in opts
