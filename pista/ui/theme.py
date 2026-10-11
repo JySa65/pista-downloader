@@ -90,6 +90,9 @@ button:disabled { opacity: .45; cursor: default; pointer-events: none; }
 .yt-toggle.on { background: var(--accent-soft); color: var(--link); }
 .yt-linkrow { display: grid; grid-template-columns: 18px 64px minmax(0,1fr) 22px; gap: 8px; align-items: center;
   padding: 6px 6px 6px 8px; border-radius: 6px; background: var(--btn); border: 1px solid var(--line); }
+.yt-linkrow.err { border-color: var(--danger-border); background: var(--danger-soft); }
+.yt-linkerr { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; min-width: 0; }
+.yt-linkerr .yt-reason { flex: 1; }
 .yt-tag { font-size: 10px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; text-align: center;
   padding: 2px 0; border-radius: 4px; background: var(--line); color: var(--muted); }
 .yt-tag.list { background: var(--accent-soft); color: var(--link); }
@@ -112,7 +115,7 @@ button:disabled { opacity: .45; cursor: default; pointer-events: none; }
 .yt-row.off .dim { opacity: .5; }
 .yt-row > .yt-pill { justify-self: stretch; text-align: center; padding: 4px 0; }
 .yt-qhead { display: grid; grid-template-columns: 20px 64px minmax(0,1fr) var(--col-status) var(--col-actions) var(--col-remove);
-  gap: 14px; padding: 0 25px 6px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+  gap: 14px; padding: 0 25px 6px; width: 100%; box-sizing: border-box; /* same columns as the rows */ font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
   color: var(--subtle); }
 .yt-remove { width: 28px; height: 28px; border: 0; border-radius: 6px; background: transparent; color: var(--muted);
   font-size: 16px; line-height: 1; cursor: pointer; padding: 0; }
@@ -140,6 +143,17 @@ button:disabled { opacity: .45; cursor: default; pointer-events: none; }
 .yt-about-k { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
 .yt-upd-new { color: var(--link); } .yt-upd-latest { color: var(--ok); } .yt-upd-error { color: var(--amber); }
 .yt-folderbtn { max-width: 320px; min-width: 0; white-space: nowrap; }
+.yt-switch { color: var(--text-2); }
+.yt-switch .q-toggle__label { padding-left: 8px; }
+.yt-cooldown { background: var(--amber-soft); color: var(--amber); border-top: 1px solid var(--line); }
+.yt-new.yt-had { background: var(--ok-soft); color: var(--ok); }
+.yt-modes > button { padding: 4px 10px; font-size: 12px; white-space: nowrap; }
+.yt-sorth { border: 0; background: transparent; padding: 0; font: inherit; color: inherit; cursor: pointer;
+  text-transform: inherit; letter-spacing: inherit; text-align: left; }
+.yt-sorth:hover { color: var(--text); }
+/* Section header inside the scrolling list; stays visible while its rows scroll. */
+.yt-libsec { position: sticky; top: 30px; /* below the sticky column header */ z-index: 1; padding: 8px 16px 4px; font-size: 11px; font-weight: 600;
+  letter-spacing: .04em; text-transform: uppercase; color: var(--muted); background: var(--app); width: 100%; }
 .yt-new { flex-shrink: 0; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em;
   padding: 1px 5px; border-radius: 4px; background: var(--accent-soft); color: var(--link); }
 .yt-retry { height: 28px; border: 1px solid var(--danger-border); background: transparent; color: var(--danger);
@@ -201,6 +215,12 @@ button:disabled { opacity: .45; cursor: default; pointer-events: none; }
 .yt-track { height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; margin-top: 3px; }
 .yt-track.big { height: 4px; margin: 0; }
 .yt-fill { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+/* Indeterminate bar for conversion (ffmpeg gives no percentage). */
+.yt-fill.busy { width: 100% !important; opacity: .55;
+  background: repeating-linear-gradient(-45deg, var(--accent) 0 8px, var(--accent-soft) 8px 16px);
+  background-size: 22.6px 22.6px; animation: yt-busy .8s linear infinite; }
+@keyframes yt-busy { to { background-position: 22.6px 0; } }
+@media (prefers-reduced-motion: reduce) { .yt-fill.busy { animation: none; } }
 .yt-fill.ok { background: var(--ok-bar); } .yt-fill.err { background: var(--danger); }
 .yt-pill { justify-self: end; font-size: 11px; font-weight: 500; padding: 3px 8px; border-radius: 999px;
   background: var(--btn); color: var(--muted); white-space: nowrap; }
@@ -215,7 +235,8 @@ button:disabled { opacity: .45; cursor: default; pointer-events: none; }
   box-shadow: 0 20px 50px rgba(0,0,0,.35); max-width: none; }
 .yt-libhead, .yt-librow { display: grid; grid-template-columns: 28px 40px minmax(0,1fr) 140px 56px; gap: 14px; align-items: center; }
 /* The header is a flex-column child: give it the rows' width (minus its side margins) so columns line up. */
-.yt-libhead { width: calc(100% - 32px); box-sizing: border-box; padding: 6px 16px; margin: 0 16px; font-size: 11px; font-weight: 600; letter-spacing: .04em;
+.yt-libhead { position: sticky; top: 0; z-index: 2; background: var(--app);
+  width: 100%; box-sizing: border-box; padding: 6px 16px; margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .04em;
   text-transform: uppercase; color: var(--subtle); border-bottom: 1px solid var(--line); }
 .yt-librow { padding: 9px 16px; border-radius: 7px; cursor: pointer; }
 .yt-librow:hover { background: var(--btn); }

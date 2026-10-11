@@ -43,6 +43,15 @@ Descarga el instalador de tu sistema desde **[Releases](https://github.com/JySa6
 | **macOS** (Apple Silicon) | `Pista-<versión>-macos-arm64.dmg` | Abre el .dmg y arrastra **Pista** a *Aplicaciones*. La app no está firmada: la primera vez, **clic derecho → Abrir → Abrir** (o *Ajustes del Sistema → Privacidad y seguridad → Abrir igualmente*). |
 | **Linux** (x86_64, glibc 2.35+) | `Pista-<versión>-x86_64.AppImage` | `chmod +x Pista-*.AppImage` y ejecútalo. Necesita un escritorio X11/Wayland con las bibliotecas habituales (`libnss3`, `libxkbcommon-x11-0`, `libxcb-cursor0`). Si no arranca, instala `libfuse2` o ejecútalo con `--appimage-extract-and-run`. |
 
+**Verificar la descarga (opcional).** Cada versión publica `SHA256SUMS.txt` y una atestación de procedencia firmada por GitHub Actions:
+
+```sh
+sha256sum -c SHA256SUMS.txt --ignore-missing          # Linux (macOS: shasum -a 256 -c …)
+gh attestation verify Pista-Setup-<versión>.exe --repo JySa65/pista-downloader
+```
+
+En Windows (PowerShell): `Get-FileHash Pista-Setup-<versión>.exe` y compara con la línea de `SHA256SUMS.txt`.
+
 > **¿Venías de «YouTube → MP3» (v0.2.x)?** Pista es la misma app con otro nombre. En Windows el instalador reemplaza la versión anterior. En macOS, borra la app antigua «YouTubeDownload». Tus descargas no se tocan, y el registro y la caché pasan solos a la carpeta nueva.
 
 ## Uso rápido
@@ -59,6 +68,13 @@ Las listas y los Mix se guardan en una subcarpeta con su nombre. **▶ Ver** mue
 
 **Algunas descargas fallan con «HTTP Error 403: Forbidden».**
 YouTube cambia a menudo y las versiones antiguas de yt-dlp dejan de funcionar. Actualiza a la [última versión de Pista](https://github.com/JySa65/pista-downloader/releases/latest) (**Acerca de → Buscar actualizaciones**). Si sigue pasando, usa **Reportar un problema** y adjunta el registro.
+
+**YouTube dice «verifica que no eres un robot».**
+YouTube a veces lo pide cuando recibe muchas peticiones desde la misma conexión. Espera unos minutos y usa «↻ Reintentar». Si sigue pasando, activa **«Usar la sesión de YouTube de mi navegador»** en las opciones y elige un navegador donde tengas abierta tu sesión de YouTube. Es opcional y viene desactivado. Pista lee las cookies de YouTube de ese navegador solo mientras descarga: no las guarda, no las escribe en el registro y no las envía a ningún otro sitio. Solo se guarda tu elección (activado y qué navegador).
+
+- **Windows:** Chrome, Edge y otros basados en Chrome cifran sus cookies y a menudo no se pueden leer; usa **Firefox**.
+- **macOS:** con Chrome, Edge o Brave el sistema puede pedir permiso del llavero (acéptalo). Safari necesita dar a Pista **Acceso total al disco** (Ajustes del Sistema → Privacidad y seguridad).
+- Si el navegador está abierto y sus cookies están bloqueadas, ciérralo e inténtalo de nuevo.
 
 **¿Dónde está el registro?**
 En la app: **Abrir registro → Mostrar en Finder / en el Explorador / en la carpeta**. El archivo es `pista.log`:

@@ -1,19 +1,20 @@
 """Download queue, preview dialog and Mix dialog."""
-import webbrowser
 from collections.abc import Callable
 from pathlib import Path
 
 from nicegui import app, run, ui
 
-from pista.core.batch import Summary, human_size, human_time, status_label
+from pista.core.batch import Summary, human_size, human_time
 from pista.core.downloader import preview_clip
+from pista.core.links import is_release_url, is_video_url, open_url
 from pista.core.models import Track
 from pista.core.plan import Plan
-from pista.core.system import user_cache_dir
-from pista.core.updates import fetch_latest, update_status
+from pista.core.progress import row_label
+from pista.core.queue import QueueModel
+from pista.core.system import writable_dir
+from pista.core.updates import check_for_updates
 
-PREVIEW_DIR = user_cache_dir() / "previews"
-PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+PREVIEW_DIR = writable_dir("previews")  # falls back to a temp folder if the cache can't be written
 app.add_media_files("/media", PREVIEW_DIR)
 
 
@@ -23,6 +24,18 @@ def hhmmss(seconds: float | None) -> str:
     h, r = divmod(int(seconds), 3600)
     m, s = divmod(r, 60)
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
+def attrs(el: ui.element, **values: str | bool) -> ui.element:
+    """Set element props one key at a time.
+
+    Never pass data through `.props("k=v …")`: NiceGUI parses that string, so a quote inside a title,
+    URL or path would inject extra props (e.g. `onerror`, `innerHTML`) into the app window.
+    Keys use `_` for `-` (e.g. aria_disabled).
+    """
+    for key, value in values.items():
+        el.props[key.replace("_", "-")] = value
+    return el
 
 
 def button(text: str, cls: str, on_click: Callable | None = None, stop: bool = False) -> ui.element:
@@ -82,9 +95,8 @@ def open_preview(track: Track) -> None:
             showing_clip = False
             player.clear()
             with player:
-                ui.element("iframe").props(
-                    f'src="{embed}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen'
-                ).classes("w-full h-full border-0")
+                attrs(ui.element("iframe"), src=embed, allow="autoplay; encrypted-media; picture-in-picture",
+                      allowfullscreen=True).classes("w-full h-full border-0")
             clip_text.text = "¿No carga? Ver clip de 30 s"
 
         async def toggle_clip() -> None:
@@ -110,7 +122,8 @@ def open_preview(track: Track) -> None:
         with ui.row().classes("w-full items-center justify-between px-4 py-3"):
             with ui.element("button").classes("yt-link").on("click", toggle_clip):
                 clip_text = ui.label()
-            button("Abrir en el navegador", "yt-btn h-8 text-xs", lambda: webbrowser.open(track.url))
+            button("Abrir en el navegador", "yt-btn h-8 text-xs",
+                   lambda: open_url(track.url, is_video_url) or ui.notify("Link no válido.", type="warning"))
         show_embed()
     dialog.on("hide", dialog.delete)
     dialog.open()
@@ -122,17 +135,14 @@ PILL = {  # state -> (pill class, bar class)
 }
 
 
-class Queue:
-    """Checkable track rows. Every row has the same fixed height and columns, whatever its state."""
+class Queue(QueueModel):
+    """Checkable track rows. Every row has the same fixed height and columns, whatever its state.
+
+    State lives in QueueModel (pista/core/queue.py); this class only paints it.
+    """
 
     def __init__(self, on_change: Callable[[], None], fmt_label: Callable[[], str]) -> None:
-        self.tracks: list[Track] = []
-        self.checked: dict[str, bool] = {}
-        self.state: dict[str, tuple[str, float]] = {}
-        self.errors: dict[str, str] = {}
-        self.fails: dict[str, int] = {}  # failed attempts per track
-        self.sizes: dict[str, int] = {}
-        self.new: set[str] = set()
+        super().__init__()
         self.rows: dict[str, dict] = {}
         self.on_change = on_change
         self.fmt_label = fmt_label
@@ -140,79 +150,33 @@ class Queue:
         self.on_remove: Callable[[str], None] = lambda track_id: None
         self.render()
 
-    def add_tracks(self, tracks: list[Track], new: bool = False) -> int:
-        """Append tracks (deduplicated by video id), checked and queued; `new` marks them «Nuevo»."""
-        added = [t for t in dict((t.id, t) for t in tracks).values() if t.id not in self.state]
-        self.tracks += added
-        for t in added:
-            self.checked[t.id] = True
-            self.state[t.id] = ("queued", 0.0)
-            if new:
-                self.new.add(t.id)
-        if added:
-            self.render.refresh()
-            self.on_change()
-        return len(added)
-
-    def next_pending(self) -> Track | None:
-        """Next checked, queued track; re-read each time so tracks added mid-download are picked up."""
-        return next((t for t in self.tracks if self.checked.get(t.id) and self.state[t.id][0] == "queued"), None)
-
-    def clear_finished(self, keep: str | None) -> int:
-        """Drop finished, failed, stopped and unchecked rows; never the one downloading (`keep`)."""
-        drop = {t.id for t in self.tracks if t.id != keep and (
-            not self.checked.get(t.id) or self.state[t.id][0] in ("done", "skipped", "error", "stopped"))}
-        self.tracks = [t for t in self.tracks if t.id not in drop]
-        for d in (self.checked, self.state, self.errors, self.fails, self.sizes):
-            for k in drop:
-                d.pop(k, None)
-        self.new -= drop
-        self.render.refresh()
-        self.on_change()
-        return len(drop)
-
-    def remove(self, track_id: str) -> Track | None:
-        """Drop one row (the caller cancels it first if it is downloading)."""
-        track = next((t for t in self.tracks if t.id == track_id), None)
-        if track is None:
-            return None
-        self.tracks.remove(track)
-        for d in (self.checked, self.state, self.errors, self.fails, self.sizes):
-            d.pop(track_id, None)
-        self.new.discard(track_id)
-        self.render.refresh()
-        self.on_change()
-        return track
-
-    def select_all(self, value: bool) -> None:
-        self.checked = {t.id: value for t in self.tracks}
+    def _changed(self) -> None:
         self.render.refresh()
         self.on_change()
 
-    def toggle(self, track_id: str) -> None:
-        self.checked[track_id] = not self.checked[track_id]
-        self.render.refresh()
-        self.on_change()
-
-    def selected(self) -> list[Track]:
-        return [t for t in self.tracks if self.checked.get(t.id)]
+    def _state_changed(self, track_id: str) -> None:
+        self._paint(track_id)
 
     def meta(self, t: Track) -> str:
         size = self.sizes.get(t.id)
         return f"{t.channel} · {hhmmss(t.duration)} · {self.fmt_label()}" + (f" · {human_size(size)}" if size else "")
 
-    def set_state(self, track_id: str, state: str, pct: float = 0.0) -> None:
-        self.state[track_id] = (state, pct)
+    def _paint(self, track_id: str) -> None:
         row = self.rows.get(track_id)
-        if row is None:
+        if row is None or track_id not in self.state:
             return
+        state, pct = self.state[track_id]
         pill_cls, bar_cls = PILL[state]
         if state == "queued" and self.fails.get(track_id):
             pill_cls = "amb"
-        width = 100 if state in ("done", "skipped") else pct
-        row["fill"].classes(replace=f"yt-fill {bar_cls}").style(f"width: {width:.0f}%")
+        phase = self.phase.get(track_id)
+        converting = state == "running" and phase in ("converting", "merging")
+        width = 100 if state in ("done", "skipped") or converting else pct
+        # Conversion has no measurable progress: an animated (indeterminate) bar, not a made-up number.
+        row["fill"].classes(replace=f"yt-fill {bar_cls}" + (" busy" if converting else "")).style(f"width: {width:.0f}%")
         row["pill"].classes(replace=f"yt-pill {pill_cls}")
-        row["pill_text"].text = status_label(state, pct, self.fails.get(track_id, 0))
+        row["pill_text"].text = row_label(state, pct, self.fails.get(track_id, 0), phase)
+        attrs(row["pill"], title="Uniendo audio y video…" if phase == "merging" and state == "running" else "")
         error = state == "error"
         row["el"].classes(replace="yt-row" + (" err" if error else "") + ("" if self.checked.get(track_id) else " off"))
         row["reason"].text = self.errors.get(track_id, "") if error else ""
@@ -246,14 +210,16 @@ class Queue:
                 with ui.element("div").classes("yt-check on" if on else "yt-check"):
                     ui.label("✓" if on else "")
                 if t.thumbnail:
-                    ui.element("img").props(f'src="{t.thumbnail}" loading="lazy" alt=""').classes("yt-thumb dim")
+                    attrs(ui.element("img"), src=t.thumbnail, loading="lazy", alt="").classes("yt-thumb dim")
                 else:
                     ui.element("div").classes("yt-thumb dim")
                 with ui.element("div").classes("yt-text dim"):
                     with ui.element("div").classes("yt-titleline"):
-                        ui.label(t.title).classes("yt-title").props(f'title="{t.title}"')
+                        attrs(ui.label(t.title).classes("yt-title"), title=t.title)
                         if t.id in self.new:
                             ui.label("Nuevo").classes("yt-new")
+                        for other in self.other_formats(t.id):  # done in the other format already
+                            ui.label("Ya en " + {"audio": "MP3", "video": "MP4"}.get(other, other)).classes("yt-new yt-had")
                     meta = ui.label().classes("yt-meta")
                     with ui.element("div").classes("yt-third"):
                         bar = ui.element("div").classes("yt-track")
@@ -267,7 +233,7 @@ class Queue:
             row = dict(el=el, track=t, fill=fill, bar=bar, reason=reason, meta=meta, pill=pill,
                        pill_text=pill_text, action=action, error_shown=None)
             self.rows[t.id] = row
-            self.set_state(t.id, *self.state[t.id])
+            self._paint(t.id)
 
 
 def summary_dialog(summary: Summary, folder: str, processed: int, go_player: Callable[[], None],
@@ -295,7 +261,7 @@ def summary_dialog(summary: Summary, folder: str, processed: int, go_player: Cal
                 for title, reason in summary.failures:
                     with ui.element("div").classes("r"):
                         ui.label(title).classes("truncate min-w-0")
-                        ui.label(reason).classes("yt-error truncate min-w-0 text-right").props(f'title="{reason}"')
+                        attrs(ui.label(reason).classes("yt-error truncate min-w-0 text-right"), title=reason)
         with ui.row().classes("yt-panel yt-line-t w-full gap-2 px-6 py-3.5 no-wrap items-center"):
             button("Cerrar", "yt-ghostbtn", dialog.close)
             ui.element("div").classes("flex-1")
@@ -349,7 +315,7 @@ async def confirm_dialog(make_plan: Callable[[bool], Plan], folder: Callable[[],
                     .style("grid-template-columns: auto minmax(0, 1fr)"):
                 ui.label("Carpeta").classes("yt-muted")
                 with ui.row().classes("gap-2 items-center no-wrap min-w-0"):
-                    ui.label(folder()).classes("mono text-xs truncate flex-1 min-w-0").props(f'title="{folder()}"')
+                    attrs(ui.label(folder()).classes("mono text-xs truncate flex-1 min-w-0"), title=folder())
                     button("Cambiar", "yt-btn h-7 text-xs px-2.5", lambda: change())
                 for k, v, mono in (("Formato", plan.format_label, False), ("Peso estimado", f"~{human_size(plan.size_bytes)}", True),
                                    ("Duración total", hhmmss(plan.duration) if plan.duration else "—", True)):
@@ -400,7 +366,7 @@ LEGAL = (
 
 def link(text: str, url: str, cls: str = "yt-a") -> ui.element:
     """Opens in the default browser (no console window), not inside the app window."""
-    return button(text, cls, lambda: webbrowser.open(url)).props(f'title="{url}"')
+    return attrs(button(text, cls, lambda: open_url(url)), title=url)
 
 
 def about_dialog(version: str, build: str, icon_svg: str, repo: str) -> None:
@@ -408,8 +374,7 @@ def about_dialog(version: str, build: str, icon_svg: str, repo: str) -> None:
 
     async def check_updates() -> None:
         status.text, status_link.visible = "Buscando…", False
-        release = await run.io_bound(fetch_latest)
-        kind, message, url = update_status(release, version)
+        kind, message, url = await run.io_bound(check_for_updates, version)  # one request per session
         status.text = message
         status.classes(replace=f"text-xs yt-upd-{kind}")
         found["url"] = url
@@ -444,7 +409,8 @@ def about_dialog(version: str, build: str, icon_svg: str, repo: str) -> None:
                 link("Avisos de terceros", f"https://github.com/{repo}/blob/main/.github/THIRD_PARTY_NOTICES.md")
             with ui.row().classes("px-6 pt-3 gap-2 items-center no-wrap"):
                 status = ui.label().classes("text-xs")
-                status_link = button("Ver la versión nueva", "yt-a text-xs", lambda: webbrowser.open(found["url"]))
+                status_link = button("Ver la versión nueva", "yt-a text-xs",
+                                     lambda: open_url(found["url"], is_release_url))
                 status_link.visible = False
         with ui.row().classes("yt-panel yt-line-t w-full justify-end gap-2 px-6 py-3.5 no-wrap shrink-0"):
             button("Buscar actualizaciones", "yt-btn h-[34px]", check_updates)

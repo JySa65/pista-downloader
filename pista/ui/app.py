@@ -5,29 +5,34 @@ import logging
 import os
 import re
 import sys
-import threading
 import time
-import webbrowser
 from pathlib import Path
 
-from nicegui import app, native, run, ui
+from nicegui import app, core, run, ui
 
 from pista import build_date, version
 from pista.core.applog import setup_logging
-from pista.core.batch import MAX_ATTEMPTS, Result, human_size, human_time, short_error, summarize
-from pista.core.downloader import ARCHIVES, Cancelled, download, list_tracks
+from pista.core.batch import MAX_ATTEMPTS, human_size, human_time, short_error
+from pista.core.loading import load_links, load_message
+from pista.core.downloader import ARCHIVES, download, list_tracks, set_cookie_browser
+from pista.core.settings import browsers_for, load_settings, save_settings
+from pista.core.progress import batch_status
+from pista.core.breaker import BREAKER
+from pista.core.queue import BatchRunner, progress_total, stop_all
 from pista.core.plan import archived_ids, plan_download
 from yt_dlp.version import __version__ as yt_dlp_version
 
 from pista.core.system import (
-    LEGACY_APP_NAME, migrate_legacy, user_cache_dir, default_outdir, find_deno, find_ffmpeg, has_ffmpeg, log_dir, open_path, read_clipboard, reveal_label, reveal_path,
+    LEGACY_APP_NAME, migrate_legacy, user_cache_dir, user_config_dir, default_outdir, find_deno, find_ffmpeg, has_ffmpeg, log_dir, open_path, read_clipboard, reveal_label, reveal_path,
 )
+from pista.core.links import open_url
 from pista.core.report import REPO, current_os, issue_url
-from pista.core.urls import classify
+from pista.core.urls import classify, is_youtube
 
 from . import theme
-from .components import Queue, about_dialog, ask_mix, button, close_dialogs, confirm_dialog, log_class, log_file_dialog, summary_dialog
+from .components import Queue, about_dialog, attrs, ask_mix, button, close_dialogs, confirm_dialog, log_class, log_file_dialog, summary_dialog
 from .player import Player
+from .security import HOST, harden, pick_port
 
 QUALITIES = {"audio": ["128", "160", "192", "256", "320"], "video": ["360p", "480p", "720p", "1080p", "4K"]}
 DEFAULT_QUALITY = {"audio": "192", "video": "720p"}
@@ -35,6 +40,7 @@ FFMPEG_MISSING = ("No se encontró ffmpeg. Instálalo para descargar (macOS: bre
                   "Windows: winget install ffmpeg · Linux: sudo apt install ffmpeg).")
 FORMATS = {"audio": "Audio · MP3", "video": "Video · MP4"}
 TAGS = {"video": "Video", "playlist": "Playlist", "mix": "Mix"}
+FMT_NAME = {"audio": "MP3", "video": "MP4"}
 RETRY_DELAY = 10  # seconds before the automatic second attempt of failed items
 logger = logging.getLogger("pista")
 CONSENT = {"ok": False}  # «Confirmo que tengo derecho…»: remembered for this app session only
@@ -65,17 +71,18 @@ def safely(action, what: str) -> None:
 def index() -> None:
     theme.apply()
     log_path = setup_logging(log_dir())
+    settings_path = user_config_dir() / "settings.json"
+    prefs = load_settings(settings_path)
+    set_cookie_browser(prefs["browser"] if prefs["cookies"] else None)
     logger.info("v%s · yt-dlp %s · ffmpeg=%s · deno=%s", version(), yt_dlp_version, find_ffmpeg(), find_deno())
     dark = False
     links: list[str] = []
+    link_errors: dict[str, str] = {}  # url -> why it couldn't be loaded
     fmt, quality = "audio", "192"
     busy = False
     log_open = False
     last_summary: dict = {}  # kwargs for summary_dialog, reopened by «Ver resumen»
-    # Written from worker threads, read by the timer on the event loop.
-    progress: dict = {"track": None, "pct": 0.0}
-    cancel = threading.Event()
-    item_cancel = threading.Event()  # cancels only the current item (row «×»), not the batch
+    runner: BatchRunner | None = None  # the running batch, if any
     log_lines: list[str] = []
 
     def log(msg: str, level: int = logging.INFO) -> None:
@@ -84,7 +91,7 @@ def index() -> None:
         log_lines.append(line)
         del log_lines[:-1000]
         last_log.text = line
-        last_log.props(f'title="{line}"')
+        attrs(last_log, title=line)
         if log_open:
             with log_box:
                 ui.label(line).classes(log_class(line))
@@ -98,11 +105,16 @@ def index() -> None:
             return
         for n, url in enumerate(links, start=1):
             kind = classify(url)
-            with ui.element("div").classes("yt-linkrow w-full").props(f'title="{url}"'):
+            error = link_errors.get(url)
+            with attrs(ui.element("div").classes("yt-linkrow w-full" + (" err" if error else "")), title=url):
                 ui.label(str(n)).classes("mono text-[11px] yt-subtle")
                 ui.label(TAGS[kind]).classes("yt-tag" + ("" if kind == "video" else " list"))
                 ui.label(re.sub(r"^https?://(www\.)?", "", url)).classes("mono text-[11px] yt-text2 truncate")
                 button("×", "yt-ghost w-5 h-5 text-sm p-0", lambda u=url: set_links([x for x in links if x != u]))
+                if error:
+                    with ui.element("div").classes("yt-linkerr"):
+                        attrs(ui.label(error).classes("yt-reason"), title=error)
+                        button("↻ Reintentar", "yt-a text-xs shrink-0", lambda u=url: load([u]))
 
     @ui.refreshable
     def quality_picker() -> None:
@@ -186,6 +198,16 @@ def index() -> None:
                         ui.label("Canciones por Mix").classes("yt-label")
                         mix_value = ui.label("50 / 50").classes("mono text-xs yt-text2")
                     mix_limit = ui.slider(min=1, max=50, value=50).props("dense color=primary")
+                with ui.column().classes("w-full gap-1.5"):
+                    # Optional: use the browser's YouTube session (yt-dlp cookiesfrombrowser). Off by default.
+                    cookies_switch = ui.switch("Usar la sesión de YouTube de mi navegador", value=prefs["cookies"]) \
+                        .props("dense color=primary").classes("yt-switch text-[13px]")
+                    cookies_browser = ui.select(dict(browsers_for()), value=prefs["browser"]) \
+                        .props("borderless dense options-dense").classes("yt-field w-full h-[34px]")
+                    cookies_browser.set_visibility(prefs["cookies"])
+                    ui.label("Ayuda cuando YouTube pide verificar que no eres un robot. Pista lee las cookies de "
+                             "YouTube de ese navegador solo para descargar; no las guarda ni las envía a otro sitio.") \
+                        .classes("text-xs yt-subtle leading-normal")
 
             ui.element("div").classes("flex-1")
             with ui.element("div").classes("yt-footnote"):
@@ -219,7 +241,7 @@ def index() -> None:
                     last_log = ui.label("Listo.").classes("yt-logline flex-1 min-w-0")
                     with ui.element("button").classes("yt-link").on("click", lambda: toggle_log()):
                         log_toggle = ui.label("Expandir")
-                    button("Reportar un problema", "yt-link", lambda: webbrowser.open(issue_url(version(), current_os()))) \
+                    button("Reportar un problema", "yt-link", lambda: open_url(issue_url(version(), current_os()))) \
                         .props('title="Abre un reporte en GitHub con la versión y el sistema ya completados"')
                     button("Abrir registro", "yt-btn yt-sm", lambda: log_file_dialog(
                         log_path, reveal_label(), lambda: safely(lambda: reveal_path(log_path), "mostrar el archivo")))
@@ -227,6 +249,12 @@ def index() -> None:
                     .style("width: calc(100% - 32px)")
                 log_box.set_visibility(False)
 
+            # Global YouTube cooldown (429 / bot check): everything pauses; items stay queued.
+            with ui.row().classes("yt-cooldown w-full items-center gap-3 px-6 py-2 no-wrap shrink-0") as cooldown_bar:
+                cooldown_text = ui.label().classes("flex-1 min-w-0 text-[13px]")
+                button("Reanudar ahora", "yt-btn yt-sm", lambda: (BREAKER.resume(), poll()))
+                button("Detener", "yt-danger yt-sm", lambda: stop())
+            cooldown_bar.set_visibility(False)
             with ui.row().classes("yt-panel yt-line-t w-full items-center gap-3 px-6 py-3 no-wrap shrink-0"):
                 with ui.column().classes("flex-1 min-w-0 gap-1.5"):
                     with ui.row().classes("w-full justify-between text-xs yt-muted no-wrap gap-3"):
@@ -270,6 +298,8 @@ def index() -> None:
     # ---------- links ----------
     def set_links(new: list[str]) -> None:
         links[:] = new
+        for gone in set(link_errors) - set(links):
+            link_errors.pop(gone)
         counts = {k: sum(classify(u) == k for u in links) for k in TAGS}
         parts = [f"{counts['video']} video{'s' if counts['video'] > 1 else ''}" if counts["video"] else "",
                  f"{counts['playlist']} playlist" if counts["playlist"] else "",
@@ -286,11 +316,15 @@ def index() -> None:
             ui.notify("El portapapeles no tiene links http/https.", type="warning")
 
     def add_urls(text: str) -> int:
-        new = [u for u in re.split(r"[\s,]+", text or "") if re.match(r"https?://", u) and u not in links]
-        new = list(dict.fromkeys(new))
+        found = [u for u in re.split(r"[\s,]+", text or "") if re.match(r"https?://", u)]
+        rejected = [u for u in found if not is_youtube(u)]
+        if rejected:
+            ui.notify(f"Solo se aceptan links de YouTube (youtube.com, youtu.be). Se ignoraron {len(rejected)}.",
+                      type="warning")
+        new = list(dict.fromkeys(u for u in found if is_youtube(u) and u not in links))
         if new:
             set_links(links + new)
-        return len(new)
+        return len(new) + len(rejected)  # rejected links already got their own message
 
     def add_links(text: str) -> None:
         if not add_urls(text) and text and text.strip():
@@ -312,7 +346,11 @@ def index() -> None:
 
     def set_format(f: str) -> None:
         nonlocal fmt
+        if busy and f != fmt:
+            ui.notify("Cambia el formato cuando termine la descarga en curso.", type="warning")
+            return
         fmt = f
+        queue.set_format(f)  # «Listo» is per format: re-evaluate every row
         for k, b in f_btns.items():
             b.classes(replace="on" if k == f else "")
         set_quality(DEFAULT_QUALITY[f])
@@ -323,6 +361,16 @@ def index() -> None:
     def fmt_short() -> str:
         return f"MP3 {quality}" if fmt == "audio" else f"MP4 {quality}"
 
+    def on_cookies_change() -> None:
+        prefs.update(cookies=bool(cookies_switch.value), browser=cookies_browser.value)
+        save_settings(settings_path, prefs)  # only the choice, never cookies
+        set_cookie_browser(prefs["browser"] if prefs["cookies"] else None)
+        cookies_browser.set_visibility(prefs["cookies"])
+        log("Sesión del navegador: " + (f"activada ({prefs['browser']})" if prefs["cookies"] else "desactivada"))
+
+    cookies_switch.on_value_change(on_cookies_change)
+    cookies_browser.on_value_change(on_cookies_change)
+
     mix_limit.on_value_change(lambda: setattr(mix_value, "text", f"{int(mix_limit.value)} / 50"))
 
     def update_counter() -> None:
@@ -332,15 +380,21 @@ def index() -> None:
 
     # ---------- progress polling ----------
     def poll() -> None:
-        if not busy or progress["track"] is None:
+        cooling = BREAKER.is_open()
+        cooldown_bar.set_visibility(cooling)
+        if cooling:
+            cooldown_text.text = BREAKER.message()
+            if runner is not None:
+                status.text = BREAKER.message()
+        if runner is None or runner.current is None:
             return
-        queue.set_state(progress["track"], "running", progress["pct"])
+        # pct/phase are written by the download thread; only this timer touches the UI.
+        queue.set_state(runner.current, "running", runner.pct, phase=runner.phase)
+        status.text = batch_status(runner.phase, *runner.position, format_text())
         set_total()
 
     def set_total() -> None:
-        sel = [t.id for t in queue.selected()]
-        pct = sum(100 if queue.state[i][0] in ("done", "skipped", "error") else queue.state[i][1]
-                  for i in sel) / len(sel) if sel else 0
+        pct = progress_total(queue)  # download/conversion weighted per item
         total_label.text = f"{pct:.0f}%"
         total_fill.style(f"width: {pct:.0f}%")
 
@@ -357,50 +411,59 @@ def index() -> None:
         summary_btn.set_visibility(not value and bool(last_summary))
 
     # ---------- actions ----------
-    async def load() -> None:
-        if not links:
+    async def load(only: list[str] | None = None) -> None:
+        urls = list(only or links)
+        if not urls:
             ui.notify("Añade al menos un link (http/https).", type="warning")
             return
         load_btn.props("disabled")
-        limit = int(mix_limit.value)
-        found = []
         try:
-            for url in list(links):
-                kind = classify(url)
-                if kind == "mix":
-                    kind = await ask_mix(limit)
-                    if kind is None:
-                        continue
-                try:
-                    result = await run.io_bound(list_tracks, url, kind, limit) or []
-                except Exception as e:
-                    log(f"✗ {url}: {short_error(str(e))}", logging.ERROR)
-                    continue
-                log(f"→ {url} ({TAGS[kind].lower()}, {len(result)} pistas)")
-                found += result
+            outcomes = await load_links(urls, list_tracks, limit=int(mix_limit.value), choose_mix=lambda u: ask_mix(int(mix_limit.value)),
+                                        run_io=run.io_bound)
         finally:
             load_btn.props(remove="disabled")
+        found = []
+        for o in outcomes:
+            if o.error:
+                link_errors[o.url] = o.error
+                log(f"✗ {o.url}: {o.raw or o.error}", logging.ERROR)
+            elif not o.skipped:
+                link_errors.pop(o.url, None)
+                log(f"→ {o.url} ({TAGS[o.kind].lower()}, {len(o.tracks)} pistas)")
+                found += o.tracks
+        dups = [t.id for t in found if t.id in queue.state]
+        for tid in dups:  # re-added: make sure it's selected if it still has to be downloaded in this format
+            if queue.state[tid][0] not in ("done", "skipped"):
+                queue.checked[tid] = True
+        dup_pending = sum(queue.state[tid][0] in ("queued", "stopped", "error") for tid in set(dups))
+        if dups:
+            queue._changed()
         added = queue.add_tracks(found, new=busy)
-        set_links([])
-        log(f"{added} pista(s) añadidas al final de la cola.")
+        loaded = {o.url for o in outcomes if o.tracks}
+        set_links([u for u in links if u not in loaded])  # failed or cancelled links stay, with their reason
+        text, kind = load_message(outcomes, added, dup_pending, FMT_NAME[fmt])
+        log(text, logging.ERROR if kind == "error" else logging.WARNING if kind == "warning" else logging.INFO)
+        ui.notify(text, type={"ok": "positive", "info": "info", "warning": "warning", "error": "negative"}[kind],
+                  multi_line=True)
         if not busy:
-            status.text = f"{len(queue.tracks)} pista(s) en la cola."
+            status.text = text if kind in ("error", "warning") else f"{len(queue.tracks)} pista(s) en la cola."
             set_total()
 
     def stop() -> None:
-        cancel.set()
+        if runner is not None:
+            runner.stop()
         close_dialogs()  # preview, log file and Mix question
 
     def remove_item(track_id: str) -> None:
-        if progress["track"] == track_id:
-            item_cancel.set()  # the worker drops it when the download aborts
+        if runner is not None:
+            runner.cancel_item(track_id)  # the worker drops it when the download aborts
         track = queue.remove(track_id)
         if track:
             log(f"− {track.title} — quitada de la cola")
         set_total()
 
     def clear_queue() -> None:
-        removed = queue.clear_finished(keep=progress["track"])
+        removed = queue.clear_finished(keep=runner.current if runner else None)
         log(f"Cola limpiada: {removed} quitadas.")
         set_total()
 
@@ -436,9 +499,8 @@ def index() -> None:
         plan = await confirm_dialog(make_plan, lambda: outdir.value, change_outdir, CONSENT)
         if plan is None:
             return
-        for tid in plan.skip:  # already in the archive for this format: no network needed
-            if tid in queue.state:
-                queue.set_state(tid, "skipped")
+        for tid in plan.skip:  # already in this format's archive: no network needed
+            queue.mark_done(tid, fmt, None, 0)
         for tid in plan.pending:
             if tid in queue.state and queue.state[tid][0] == "stopped":
                 queue.set_state(tid, "queued")
@@ -452,87 +514,23 @@ def index() -> None:
             return
         if not has_ffmpeg() or not (outdir.value or "").strip():
             return
+        nonlocal runner
         out = str(Path(outdir.value.strip()).expanduser())
-        cancel.clear()
-        for t in queue.selected():  # re-run anything selected that was stopped
-            if queue.state[t.id][0] == "stopped":
-                queue.set_state(t.id, "queued")
+        runner = BatchRunner(queue, download, out=out, quality=quality, fmt=fmt, run_io=run.io_bound,
+                             retry_delay=RETRY_DELAY, log=log, status=lambda text: setattr(status, "text", text),
+                             fmt_text=format_text(), on_progress=set_total)
         set_busy(True)
-        started = time.monotonic()
-        results: dict[str, Result] = {}
-        log(f"▶ Descargando en {out} · {format_text()}")
-
-        class Either:  # what download() polls: the batch's Detener or this row's «×»
-            @staticmethod
-            def is_set() -> bool:
-                return cancel.is_set() or item_cancel.is_set()
-
-        either = Either()
-
-        async def run_pending() -> None:
-            while not cancel.is_set() and (t := queue.next_pending()) is not None:
-                attempt = queue.fails.get(t.id, 0) + 1
-                done = sum(r.state != "error" for r in results.values())
-                pending = sum(1 for x in queue.selected() if queue.state[x.id][0] == "queued")
-                status.text = f"Descargando {done + 1} de {done + pending} · {format_text()}"
-                log(f"… {t.title} — descargando" + (f" (intento {attempt}/{MAX_ATTEMPTS})" if attempt > 1 else ""))
-                progress.update(track=t.id, pct=0.0)
-                item_cancel.clear()
-
-                def on_progress(pct: float, _msg: str) -> None:
-                    progress["pct"] = min(pct, 99.0)
-
-                try:
-                    path = await run.io_bound(download, t, out, quality, t.playlist, on_progress, either, fmt)
-                    size = Path(path).stat().st_size if path and Path(path).exists() else 0
-                    if t.id not in queue.state:  # removed right as it finished
-                        continue
-                    results[t.id] = Result(t.title, "done" if path else "skipped", path, size)
-                    if size:
-                        queue.sizes[t.id] = size
-                    queue.set_state(t.id, "done" if path else "skipped")
-                    log(f"✓ {path} ({human_size(size)})" if path else f"= {t.title} — ya estaba, se omite")
-                except Cancelled:
-                    if t.id in queue.state:  # stopped batch; a removed row is just dropped
-                        results[t.id] = Result(t.title, "stopped")
-                        queue.set_state(t.id, "stopped", progress["pct"])
-                except Exception as e:
-                    if t.id not in queue.state:  # removed while downloading
-                        continue
-                    queue.fails[t.id] = attempt
-                    results[t.id] = Result(t.title, "error", error=str(e))
-                    queue.errors[t.id] = short_error(str(e))
-                    queue.set_state(t.id, "error")
-                    log(f"✗ {t.title} (intento {attempt}/{MAX_ATTEMPTS}) — {e}", logging.ERROR)
-                finally:
-                    progress["track"] = None
-                set_total()
-
-        await run_pending()
-        # One automatic second pass for items that failed only once.
-        again = [tid for tid, r in results.items() if r.state == "error" and queue.fails.get(tid) == 1]
-        if again and not cancel.is_set():
-            status.text = f"Reintentando {len(again)} fallida(s) en {RETRY_DELAY} s…"
-            for tid in again:
-                queue.set_state(tid, "queued")  # shows «Reintentando (2/3)»
-            log(f"↻ Reintentando {len(again)} fallida(s) en {RETRY_DELAY} s", logging.WARNING)
-            for _ in range(RETRY_DELAY * 10):
-                if cancel.is_set():
-                    break
-                await asyncio.sleep(0.1)
-            await run_pending()
-
-        stopped = cancel.is_set()
-        if stopped:
-            for t in queue.selected():  # anything left in the queue counts as stopped
-                if queue.state[t.id][0] == "queued":
-                    queue.set_state(t.id, "stopped")
-                    results.setdefault(t.id, Result(t.title, "stopped"))
-            log("Detenido por el usuario.")
-        status.text = "Detenido." if stopped else "Terminado."
+        try:
+            summary = await runner.run()
+        except Exception as e:  # never leave the UI stuck in «descargando»
+            logger.exception("batch failed")
+            ui.notify(f"La descarga se interrumpió por un error: {short_error(str(e))}", type="negative")
+            set_busy(False)
+            return
+        finally:
+            results = runner.results
+            runner = None
         set_total()
-        summary = summarize(list(results.values()), time.monotonic() - started,
-                            ended_at=time.strftime("%H:%M"), processed=len(results))
         log(f"Resumen: {summary.done} descargadas, {summary.skipped} ya estaban, {summary.failed} fallidas, "
             f"{summary.stopped} detenidas · {human_size(summary.total_bytes)} · {human_time(summary.elapsed)}")
         failed_ids = [tid for tid, r in results.items() if r.state == "error"]
@@ -549,7 +547,7 @@ def index() -> None:
     def go_to_player(first_new: str | None) -> None:
         show_tab("player")
         if first_new:
-            player.play_path(Path(first_new))
+            ui.timer(0, lambda: player.play_path(Path(first_new)), once=True)
 
 
 def native_available() -> bool:
@@ -561,14 +559,19 @@ def native_available() -> bool:
 
 
 def run_app() -> None:
+    app.on_shutdown(stop_all)  # closing the window stops downloads (yt-dlp keeps .part files resumable)
     migrate_legacy(user_cache_dir(app=LEGACY_APP_NAME), user_cache_dir())  # <= 0.2.x logs and preview cache
     # YTMP3_BROWSER: pre-rename name of the same switch, still honored.
     browser = "--browser" in sys.argv or "1" in (os.environ.get("PISTA_BROWSER"), os.environ.get("YTMP3_BROWSER"))
     if not browser and not native_available():
         print("Ventana nativa no disponible (falta pywebview o GTK/Qt); abriendo en el navegador.", file=sys.stderr)
         browser = True
+    port = pick_port()
+    harden(app, core.sio, port)  # loopback Host only, socket.io only from the app's own origin
     if browser:
-        ui.run(reload=False, title="Pista", favicon=theme.ICON_SVG)
+        # `show` opens the default browser; the server still only listens on 127.0.0.1.
+        ui.run(reload=False, title="Pista", favicon=theme.ICON_SVG, host=HOST, port=port,
+               show=os.environ.get("PISTA_NO_BROWSER") != "1")
     else:
         app.native.window_args["maximized"] = True  # create_window kwarg: Cocoa, WinForms, GTK and Qt honor it
         if sys.platform.startswith("linux"):
@@ -579,4 +582,4 @@ def run_app() -> None:
             if getattr(sys, "frozen", False):
                 app.native.start_args["gui"] = "qt"  # the Linux build bundles the Qt backend
         ui.run(native=True, reload=False, title="Pista", window_size=(1100, 740),
-               port=native.find_open_port(), favicon=theme.ICON_SVG)
+               host=HOST, port=port, favicon=theme.ICON_SVG)

@@ -1,21 +1,31 @@
 """yt-dlp wrapper: list tracks without downloading, download one track as MP3/MP4."""
 import logging
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 
 import yt_dlp
+from yt_dlp.postprocessor.common import PostProcessor
 from yt_dlp.postprocessor.ffmpeg import FFmpegPostProcessor
 from yt_dlp.utils import DownloadCancelled, download_range_func, sanitize_filename
 
+from contextlib import contextmanager
+
+from .batch import is_rate_limited
+from .breaker import GATE
 from .models import Track
 from .plan import video_sizes
+from .progress import phase_for_postprocessor
 from .system import find_deno, find_ffmpeg
-from .urls import video_id, video_url
+from .urls import is_youtube, video_id, video_url
 
 Cancelled = DownloadCancelled  # raised by download() when cancel_event is set
 
 log = logging.getLogger("pista.yt_dlp")
+
+# Only YouTube extractors: yt-dlp's generic extractor would otherwise read metadata from any web page.
+ALLOWED_EXTRACTORS = ["youtube", "youtube:tab", "youtube:playlist", "youtubeytbe"]
 
 ARCHIVES = {"audio": ".downloaded-audio.txt", "video": ".downloaded-video.txt"}
 
@@ -59,15 +69,36 @@ class _Logger:
         log.error(msg)
 
 
-def base_opts(ffmpeg: str | None, deno: str | None, logger: object | None) -> dict:
+def _retry_sleep(attempt: int) -> float:
+    return min(60.0, 2.0 ** attempt)
+
+
+_cookie_browser: str | None = None  # set from the UI option; None = don't use browser cookies
+
+
+def set_cookie_browser(browser: str | None) -> None:
+    """Use this browser's YouTube session for every yt-dlp call (listing, download, preview), or None."""
+    global _cookie_browser
+    _cookie_browser = browser
+
+
+def base_opts(ffmpeg: str | None, deno: str | None, logger: object | None, cookies_browser: str | None = None) -> dict:
     """Options shared by every yt-dlp call: bundled tools, retries, quiet console, portable names."""
     opts = {
         "quiet": True,
         "noprogress": True,
+        "no_color": True,  # no ANSI codes in messages we log or show
         "windowsfilenames": True,  # portable names on every OS (reserved chars, trailing dots/spaces)
-        "retries": 10,
+        "retries": 10,  # media HTTP retries only cover network errors/5xx: keep resilience for drops
         "fragment_retries": 10,
-        "extractor_retries": 3,
+        "extractor_retries": 1,  # a 429/bot check is handled by the global breaker, not by hammering
+        # Pacing: ~1 s between extraction requests, 2–5 s (random) before each download.
+        "sleep_interval_requests": 1,
+        "sleep_interval": 2,
+        "max_sleep_interval": 5,
+        # yt-dlp retries immediately by default; back off instead (1, 2, 4, … s, capped).
+        "retry_sleep_functions": {kind: _retry_sleep for kind in ("http", "fragment", "extractor")},
+        "allowed_extractors": ALLOWED_EXTRACTORS,
     }
     if ffmpeg:
         opts["ffmpeg_location"] = ffmpeg
@@ -75,6 +106,9 @@ def base_opts(ffmpeg: str | None, deno: str | None, logger: object | None) -> di
         opts["js_runtimes"] = {"deno": {"path": deno}}
     if logger is not None:
         opts["logger"] = logger
+    if cookies_browser:
+        # yt-dlp reads the cookies in memory for its requests; Pista never stores or logs them.
+        opts["cookiesfrombrowser"] = (cookies_browser,)
     return opts
 
 
@@ -84,7 +118,7 @@ def _ydl(extra: dict) -> yt_dlp.YoutubeDL:
     # yt-dlp only honors `ffmpeg_location` in some code paths (e.g. picking the downloader for
     # partial/section downloads checks this context var, which only its CLI sets). Set it in this thread.
     FFmpegPostProcessor._ffmpeg_location.set(ffmpeg)
-    return yt_dlp.YoutubeDL({**base_opts(ffmpeg, find_deno(), _Logger()), **extra})
+    return yt_dlp.YoutubeDL({**base_opts(ffmpeg, find_deno(), _Logger(), _cookie_browser), **extra})
 
 
 def _thumbnail(entry: dict) -> str | None:
@@ -94,18 +128,55 @@ def _thumbnail(entry: dict) -> str | None:
     return thumbs[-1].get("url") if thumbs else None
 
 
+def _entry_id(entry: dict) -> str:
+    """Video id from the entry, or from its YouTube URL; '' if there is none (the entry is skipped)."""
+    vid = entry.get("id")
+    if isinstance(vid, str) and vid:
+        return vid
+    url = entry.get("url")
+    return (video_id(url) or "") if isinstance(url, str) and is_youtube(url) else ""
+
+
 def _track(entry: dict, playlist: str = "") -> Track:
-    vid = entry.get("id") or ""
+    vid = _entry_id(entry)
     return Track(
         id=vid,
         title=entry.get("title") or "(sin título)",
         channel=entry.get("channel") or entry.get("uploader") or "?",
         duration=entry.get("duration"),
-        url=f"https://www.youtube.com/watch?v={vid}" if vid else entry.get("url", ""),
+        url=f"https://www.youtube.com/watch?v={vid}",
         thumbnail=_thumbnail(entry),
         playlist=playlist,
         video_sizes=video_sizes(entry.get("formats") or []),  # only full (non-flat) extraction has formats
     )
+
+
+class ReliableThumbnail(PostProcessor):
+    """Keep only YouTube's always-present hqdefault.jpg as the cover candidate.
+
+    yt-dlp otherwise probes thumbnails from the largest down, one request per missing size (7 extra
+    requests measured for an old video). Runs at 'pre_process', before thumbnails are written.
+    """
+
+    def run(self, info):
+        thumbs = info.get("thumbnails") or []
+        keep = [t for t in thumbs if "/hqdefault.jpg" in (t.get("url") or "")]
+        if keep:
+            info["thumbnails"] = keep[:1]
+        return [], info
+
+
+@contextmanager
+def _youtube():
+    """Every YouTube operation: one at a time, none during a cooldown; a rate limit pauses everything."""
+    with GATE.use():
+        try:
+            yield
+        except Exception as e:
+            if is_rate_limited(str(e)):
+                GATE.breaker.trip()
+            raise
+        GATE.breaker.record_success()
 
 
 def list_tracks(url: str, kind: str, mix_limit: int = 50) -> list[Track]:
@@ -117,12 +188,13 @@ def list_tracks(url: str, kind: str, mix_limit: int = 50) -> list[Track]:
         opts["extract_flat"] = "in_playlist"
         if kind == "mix":
             opts["playlistend"] = mix_limit
-    with _ydl(opts) as ydl:
+    with _youtube(), _ydl(opts) as ydl:
         info = ydl.extract_info(url, download=False)
     if info.get("_type") != "playlist":
         return [_track(info)]
     title = info.get("title") or info.get("id") or "playlist"
-    return [_track(e, title) for e in info.get("entries") or [] if e]
+    # Entries without a usable id can't be downloaded or deduplicated: skip them.
+    return [_track(e, title) for e in info.get("entries") or [] if isinstance(e, dict) and _entry_id(e)]
 
 
 def download(
@@ -130,7 +202,7 @@ def download(
     outdir: str | Path,
     quality: str = "192",
     subfolder: str = "",
-    on_progress: Callable[[float, str], None] = lambda pct, msg: None,
+    on_progress: Callable[[float, str], None] = lambda pct, phase: None,
     cancel_event: threading.Event | None = None,
     fmt: str = "audio",
 ) -> str | None:
@@ -143,26 +215,82 @@ def download(
             raise Cancelled()
         if d.get("status") == "downloading":
             total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
-            pct = d.get("downloaded_bytes", 0) / total * 100 if total else 0.0
-            on_progress(pct, f"Descargando… {pct:0.1f}%")
+            on_progress(d.get("downloaded_bytes", 0) / total * 100 if total else 0.0, "downloading")
         elif d.get("status") == "finished":
-            on_progress(95.0, "Procesando…")
+            on_progress(100.0, "downloading")
 
-    target = Path(outdir) / sanitize_filename(subfolder) if subfolder else Path(outdir)
+    def pp_hook(d):
+        # ffmpeg conversion only reports started/finished: the UI shows it as indeterminate.
+        phase = phase_for_postprocessor(d.get("postprocessor", ""))
+        if phase and d.get("status") == "started":
+            on_progress(0.0, phase)
+
+    target = target_dir(outdir, subfolder)
+    repair_archive(Path(outdir) / ARCHIVES[fmt])
     opts = {
         **format_opts(fmt, quality),
         "noplaylist": True,
-        "outtmpl": str(target / "%(title)s.%(ext)s"),
+        "outtmpl": str(target / f"%(title).{MAX_NAME_BYTES}B.%(ext)s"),  # .NB = truncate to N bytes
         "download_archive": str(Path(outdir) / ARCHIVES[fmt]),
         "progress_hooks": [hook],
+        "postprocessor_hooks": [pp_hook],
     }
-    with _ydl(opts) as ydl:
+    # Each download extracts fresh: stream URLs from the listing were measured to fail with 403 when reused.
+    with _youtube(), _ydl(opts) as ydl:
+        if fmt == "audio":
+            ydl.add_post_processor(ReliableThumbnail(), when="pre_process")
         info = ydl.extract_info(track.url, download=True)
     downloads = (info or {}).get("requested_downloads") or []
     if not downloads:
         return None  # skipped: already in download archive
-    on_progress(100.0, "Listo")
     return downloads[0]["filepath"]
+
+
+def repair_archive(archive: Path) -> Path | None:
+    """If the download archive isn't valid UTF-8, keep a backup and rewrite it with its readable lines.
+
+    yt-dlp fails to start with a corrupt archive, which would make every download fail.
+    Returns the backup path, or None if nothing had to be done.
+    """
+    try:
+        data = archive.read_bytes()
+    except OSError:
+        return None
+    try:
+        data.decode("utf-8")
+        return None
+    except UnicodeDecodeError:
+        pass
+    lines = [ln for ln in data.decode("utf-8", errors="replace").splitlines()
+             if len(ln.split()) == 2 and "\ufffd" not in ln and "\x00" not in ln]
+    backup = archive.with_name(f"{archive.name}.corrupt-{int(time.time())}")
+    try:
+        archive.replace(backup)
+        archive.write_text("".join(f"{ln}\n" for ln in lines), "utf-8")
+    except OSError:
+        return None
+    log.warning("Registro de descargas dañado: copia en %s, %d entradas recuperadas", backup, len(lines))
+    return backup
+
+
+MAX_NAME_BYTES = 150  # file/folder names: well under the 255-byte limit of common filesystems, short on Windows
+
+
+def _trim_bytes(text: str, limit: int) -> str:
+    return text.encode("utf-8")[:limit].decode("utf-8", errors="ignore")
+
+
+def target_dir(outdir: str | Path, subfolder: str) -> Path:
+    """Folder for a download: `outdir`, or `outdir/<sanitized playlist title>`; never outside `outdir`."""
+    base = Path(outdir)
+    name = _trim_bytes(sanitize_filename(subfolder or "").strip(), MAX_NAME_BYTES).strip()
+    if name in ("", ".", ".."):
+        return base
+    target = base / name
+    resolved_base = base.resolve()
+    if target.resolve().parent != resolved_base:  # e.g. an existing symlink pointing elsewhere
+        raise ValueError(f"La carpeta de destino queda fuera de {base}: {name}")
+    return target
 
 
 def preview_clip_path(url: str, dest_dir: str | Path) -> Path:
@@ -181,6 +309,6 @@ def preview_clip(url: str, dest_dir: str | Path, seconds: int = 30) -> Path:
         "outtmpl": str(path.with_suffix(".%(ext)s")),
         "noplaylist": True,
     }
-    with _ydl(opts) as ydl:
+    with _youtube(), _ydl(opts) as ydl:
         ydl.download([video_url(url)])
     return path

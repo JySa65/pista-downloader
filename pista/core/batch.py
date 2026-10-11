@@ -26,9 +26,62 @@ class Summary:
     subtitle: str = ""
 
 
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+
+def strip_ansi(text: str) -> str:
+    """Remove terminal color codes (yt-dlp may add them to error messages)."""
+    return _ANSI.sub("", text or "")
+
+
+# (pattern, friendly reason) — checked in order; the first match wins.
+BOT_HINT = "Puedes activar «Usar la sesión de YouTube de mi navegador» en las opciones."
+
+_REASONS = [
+    # Optional browser-session cookies (cookiesfrombrowser) — known platform limits.
+    (r"Failed to decrypt with DPAPI|app.?bound encryption",
+     "No se pudieron leer las cookies de ese navegador en Windows (los navegadores basados en Chrome las cifran). "
+     "Prueba con Firefox."),
+    (r"Could not copy .* cookie database|database is locked",
+     "El navegador tiene sus cookies bloqueadas: ciérralo del todo e inténtalo de nuevo."),
+    (r"Cookies\.binarycookies|could not find safari cookies",
+     "Para usar Safari, da a Pista «Acceso total al disco» en Ajustes del Sistema → Privacidad y seguridad, "
+     "o elige otro navegador."),
+    (r"could not find \w+ cookies database|could not find local state file",
+     "No se encontró el perfil de ese navegador. ¿Está instalado y has iniciado sesión en YouTube con él?"),
+    (r"failed to load cookies|cannot decrypt .* cookies|failed to read from keyring",
+     "No se pudieron leer las cookies del navegador. Si el sistema pidió permiso (llavero), acéptalo, "
+     "o desactiva la opción."),
+    (r"confirm you.?re not a bot", "YouTube pide verificar que no eres un robot. Espera unos minutos e inténtalo de nuevo. "
+                                   + BOT_HINT),
+    (r"HTTP Error 429|Too Many Requests", "YouTube está limitando las descargas (demasiadas solicitudes). "
+                                          "Espera unos minutos e inténtalo de nuevo."),
+    (r"Private video", "El video es privado."),
+    (r"members.only|Join this channel", "El video es solo para miembros del canal."),
+    (r"confirm your age|age.restricted|inappropriate for some users", "El video tiene restricción de edad."),
+    (r"not (made this video )?available in your country|blocked it in your country|geo.?restrict",
+     "El video no está disponible en tu país."),
+    (r"Video unavailable|This video (is|has been) (no longer available|removed)|has been terminated",
+     "El video no está disponible."),
+    (r"nodename nor servname|Name or service not known|getaddrinfo failed|Temporary failure in name resolution|"
+     r"timed out|Network is unreachable|Connection (refused|reset)|No route to host|urlopen error",
+     "Sin conexión o no se encontró el servidor. Revisa tu internet."),
+]
+
+
+def friendly_error(msg: str, limit: int = 120) -> str:
+    """Short Spanish reason for a yt-dlp error; unknown errors fall back to the cleaned-up message."""
+    clean = strip_ansi(msg)
+    for pattern, reason in _REASONS:
+        if re.search(pattern, clean, re.IGNORECASE):
+            return reason
+    return short_error(clean, limit)
+
+
 def short_error(msg: str, limit: int = 120) -> str:
     """One readable line from a yt-dlp error: no 'ERROR:' / '[extractor] id:' prefixes."""
-    line = (msg or "").strip().splitlines()[0] if (msg or "").strip() else ""
+    msg = strip_ansi(msg)
+    line = msg.strip().splitlines()[0] if msg.strip() else ""
     line = re.sub(r"^(ERROR:\s*)?(\[[\w:]+\]\s*[\w-]+:\s*)?", "", line).strip()
     if not line:
         return "Error desconocido"
@@ -48,7 +101,7 @@ def summarize(results: list[Result], elapsed: float, ended_at: str = "", process
         stopped=count("stopped"),
         total_bytes=sum(r.size for r in results if r.state == "done"),
         elapsed=elapsed,
-        failures=[(r.title, short_error(r.error)) for r in results if r.state == "error"],
+        failures=[(r.title, friendly_error(r.error)) for r in results if r.state == "error"],
         first_new=next((r.path for r in results if r.state == "done" and r.path), None),
         ended_at=ended_at,
         subtitle=subtitle,
@@ -84,3 +137,16 @@ def status_label(state: str, pct: float, failed_attempts: int) -> str:
     if state == "queued" and failed_attempts:
         return f"Reintentando ({failed_attempts + 1}/{MAX_ATTEMPTS})"
     return _LABELS[state]
+
+
+_RATE_LIMIT = re.compile(r"HTTP Error 429|Too Many Requests|confirm you.?re not a bot|rate.?limit", re.IGNORECASE)
+
+
+def is_rate_limited(message: str) -> bool:
+    """YouTube is throttling us: keep going, but slowly."""
+    return bool(_RATE_LIMIT.search(message or ""))
+
+
+def backoff(n: int, base: float = 15.0, cap: float = 300.0) -> float:
+    """Seconds to wait after the n-th rate-limited item in a row (n >= 1): 15, 30, 60, … up to 5 min."""
+    return min(cap, base * 2 ** (n - 1))

@@ -127,6 +127,23 @@ def has_ffmpeg() -> bool:
     return find_ffmpeg() is not None
 
 
+def writable_dir(name: str) -> Path:
+    """`<user cache>/<name>`, or a per-user temp folder if the cache can't be written (never raises)."""
+    import tempfile
+
+    for base in (user_cache_dir(), Path(tempfile.gettempdir()) / f"{APP_NAME}-{os.getuid() if hasattr(os, 'getuid') else 'user'}"):
+        d = base / name
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+            probe = d / ".write-test"
+            probe.write_bytes(b"")
+            probe.unlink()
+            return d
+        except OSError:
+            continue
+    return Path(tempfile.mkdtemp(prefix=f"{APP_NAME}-{name}-"))
+
+
 def log_dir() -> Path:
     return user_cache_dir() / "logs"
 
@@ -156,6 +173,17 @@ def migrate_legacy(old: Path, new: Path) -> list[Path]:
         except OSError:
             pass
     return moved
+
+
+def user_config_dir(platform: str = sys.platform, env: Mapping[str, str] = os.environ,
+                    home: Path | None = None) -> Path:
+    """Per-user folder for settings."""
+    home = home or Path.home()
+    if platform == "win32":
+        return Path(env.get("APPDATA") or home / "AppData" / "Roaming") / APP_NAME
+    if platform == "darwin":
+        return home / "Library" / "Application Support" / APP_NAME
+    return Path(env.get("XDG_CONFIG_HOME") or home / ".config") / APP_NAME
 
 
 def user_cache_dir(platform: str = sys.platform, env: Mapping[str, str] = os.environ,
