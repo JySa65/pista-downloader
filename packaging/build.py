@@ -37,6 +37,8 @@ FFMPEG = {
     "linux": (BTBN + "ffmpeg-n8.1.3-17-gc389840894-linux64-lgpl-8.1.tar.xz",
               "a79d3e6d6767fc139406a3b82db499bb337b5293e8977996676072b1086e148c"),
 }
+# Evergreen bootstrapper: always the latest file, so it is checked by Microsoft's Authenticode signature, not a hash.
+WEBVIEW2_BOOTSTRAPPER = "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
 APPIMAGETOOL = ("https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage",
                 "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0")
 APPIMAGE_RUNTIME = ("https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64",
@@ -124,9 +126,21 @@ def package_macos(v: str) -> Path:
     return dmg
 
 
+def webview2_bootstrapper() -> Path:
+    dest = BUILD / "MicrosoftEdgeWebview2Setup.exe"
+    if not dest.exists():
+        print("download", WEBVIEW2_BOOTSTRAPPER, flush=True)
+        urllib.request.urlretrieve(WEBVIEW2_BOOTSTRAPPER, dest)
+    check = ("$s = Get-AuthenticodeSignature -LiteralPath $env:WV2; "
+             "if ($s.Status -ne 'Valid' -or $s.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') "
+             "{ Write-Error \"bad signature: $($s.Status) $($s.SignerCertificate.Subject)\"; exit 1 }")
+    subprocess.run(["powershell", "-NoProfile", "-Command", check], check=True, env={**os.environ, "WV2": str(dest)})
+    return dest
+
+
 def package_windows(v: str) -> Path:
     iscc = shutil.which("iscc") or r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-    run(iscc, f"/DAppVersion={v}", f"/DIconFile={PKG / 'icon.ico'}", f"/DSourceDir={DIST / NAME}", f"/DOutputDir={DIST}", PKG / "installer.iss")
+    run(iscc, f"/DWebView2Setup={webview2_bootstrapper()}", f"/DAppVersion={v}", f"/DIconFile={PKG / 'icon.ico'}", f"/DSourceDir={DIST / NAME}", f"/DOutputDir={DIST}", PKG / "installer.iss")
     return DIST / f"{NAME}-Setup-{v}.exe"
 
 

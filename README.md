@@ -8,7 +8,7 @@ Download the installer for your system from the repository's **Releases** page (
 
 | System | File | Install |
 |--------|------|---------|
-| Windows 10/11 (64-bit) | `YouTubeDownload-Setup-<version>.exe` | Run it and follow the wizard (Start Menu entry, optional desktop shortcut, uninstall from *Settings → Apps*). It uses Microsoft Edge WebView2, which ships with Windows 10/11. SmartScreen may warn because the installer is unsigned: *More info → Run anyway*. |
+| Windows 10 y 11 (64 bits) | `YouTubeDownload-Setup-<version>.exe` | Run it and follow the wizard (Start Menu entry, optional desktop shortcut, uninstall from *Settings → Apps*). The app uses Microsoft Edge WebView2: Windows 11 includes it, and on Windows 10 the installer checks for it and, if missing, installs it with Microsoft's bootstrapper (needs internet once). SmartScreen may warn because the installer is unsigned: *More info → Run anyway*. |
 | macOS (Apple Silicon) | `YouTubeDownload-<version>-macos-arm64.dmg` | Open the .dmg and drag **YouTubeDownload** to *Applications*. The app is unsigned, so the first time **right-click → Open → Open** (or *System Settings → Privacy & Security → Open Anyway*). |
 | Linux (x86_64, glibc 2.35+) | `YouTubeDownload-<version>-x86_64.AppImage` | `chmod +x YouTubeDownload-*.AppImage` and run it. The Qt web engine is bundled; a desktop with X11/Wayland plus the usual `libnss3`, `libxkbcommon-x11-0` and `libxcb-cursor0` libraries is required. If the AppImage won't start, install `libfuse2` or run it with `--appimage-extract-and-run`. |
 
@@ -24,7 +24,7 @@ The bundled ffmpeg/ffprobe are LGPL builds (Windows/Linux: [BtbN FFmpeg-Builds](
 | OS | ffmpeg | Native window |
 |----|--------|---------------|
 | macOS | `brew install ffmpeg` | built in (WebKit) |
-| Windows 10/11 | `winget install ffmpeg` (or `choco install ffmpeg`) | built in (WebView2, ships with Windows) |
+| Windows 10/11 (64-bit) | `winget install ffmpeg` (or `choco install ffmpeg`) | WebView2 (included in Windows 11; on Windows 10 install the [Evergreen runtime](https://developer.microsoft.com/microsoft-edge/webview2/) if missing) |
 | Linux (Debian/Ubuntu) | `sudo apt install ffmpeg` | GTK: `sudo apt install python3-gi gir1.2-webkit2-4.1`, or Qt: `uv pip install "pywebview[qt]"` |
 
 If the native window can't be used (e.g. Linux without GTK/Qt) the app opens in your browser instead. You can force that with `uv run main.py --browser` or `YTMP3_BROWSER=1`.
