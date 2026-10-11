@@ -95,7 +95,8 @@ button:disabled { opacity: .45; cursor: default; pointer-events: none; }
 .yt-tag.list { background: var(--accent-soft); color: var(--link); }
 /* Fixed right-hand columns so status chips and actions line up on every row. */
 .yt-row { display: grid; grid-template-columns: 20px 64px minmax(0,1fr) var(--col-status) var(--col-actions);
-  gap: 14px; align-items: center; padding: 10px 8px; border-radius: 8px; cursor: pointer; }
+  gap: 14px; align-items: center; padding: 10px 8px; border-radius: 8px; cursor: pointer;
+  width: 100%; box-sizing: border-box; /* rows live in a flex column; without this each row shrinks to its content */ }
 .yt-row > .yt-pill { justify-self: end; }
 .yt-actions { display: flex; justify-content: flex-end; align-items: center; gap: 2px; min-width: 0; }
 .yt-area { background: var(--field); border: 1px solid var(--field-border); border-radius: 7px; padding: 6px 10px; }
@@ -123,6 +124,8 @@ button:disabled { opacity: .45; cursor: default; pointer-events: none; }
 .yt-pill.err { background: var(--danger-soft); color: var(--danger); }
 .yt-log { font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 1.7; color: var(--log);
   background: var(--field); border: 1px solid var(--field-border); border-radius: 7px; padding: 10px 12px; }
+.yt-stat.ok { color: var(--ok); } .yt-stat.err { color: var(--danger); }
+.yt-error { color: var(--danger); }
 .yt-modal { background: var(--bar); color: var(--text); border: 1px solid var(--btn-border); border-radius: 12px;
   box-shadow: 0 20px 50px rgba(0,0,0,.35); max-width: none; }
 .yt-libhead, .yt-librow { display: grid; grid-template-columns: 32px minmax(0,1fr) 160px 60px; gap: 14px; align-items: center; }
