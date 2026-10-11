@@ -11,3 +11,6 @@ wheels/
 
 # Local design exports (not versioned)
 design/
+
+# Local agent memory config (not versioned)
+.engram/
