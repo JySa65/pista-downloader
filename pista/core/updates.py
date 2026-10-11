@@ -18,9 +18,9 @@ def is_newer(latest: str, current: str) -> bool:
     return bool(a and b and a > b)
 
 
-def fetch_latest(timeout: float = 8.0) -> dict | None:
+def fetch_latest(timeout: float = 8.0, url: str = RELEASES_API) -> dict | None:
     """Latest release JSON, or None on any error (offline, rate limit, 404 while the repo is private)."""
-    req = urllib.request.Request(RELEASES_API, headers={"Accept": "application/vnd.github+json",
+    req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json",
                                                         "User-Agent": "pista-update-check"})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
