@@ -34,6 +34,9 @@
 - Review (11 files) approved; follow-ups done: Session.run_batch releases the batch slot on
   build/run failure and cancellation (4 tests, RED AttributeError); filtered Queue repaint test;
   ffmpeg warning logged once per app run. pytest 318 passed.
+- Review (12 files) approved; fixed: end-of-batch tail now releases the slot in finally (R3-002);
+  NiceGUI test restores core.loop and deletes its Client (R3-003). Noted, not fixed: only the newest
+  attached page gets updates (second browser tab goes stale) — single-window desktop app (R3-001).
 
 ## Next step
 User manual check; push when the user says.

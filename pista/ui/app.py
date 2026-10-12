@@ -560,19 +560,21 @@ def index() -> None:
         runner, summary = await session.run_batch(make_runner, set_busy, failed)
         if summary is None:
             return
-        results = runner.results
-        session.to_page("set_total")
-        log(f"Resumen: {summary.done} descargadas, {summary.skipped} ya estaban, {summary.failed} fallidas, "
-            f"{summary.stopped} detenidas · {human_size(summary.total_bytes)} · {human_time(summary.elapsed)}")
-        failed_ids = [tid for tid, r in results.items() if r.state == "error"]
-        last_summary.clear()
-        last_summary.update(
-            summary=summary, folder=out, processed=len(results),
-            go_player=lambda: session.to_page("go_to_player", summary.first_new),
-            open_folder=lambda: safely(lambda: open_path(out), "abrir la carpeta"),
-            retry_failed=(lambda: session.to_page("retry", failed_ids)) if failed_ids else None,
-        )
-        set_busy(False)
+        try:
+            results = runner.results
+            session.to_page("set_total")
+            log(f"Resumen: {summary.done} descargadas, {summary.skipped} ya estaban, {summary.failed} fallidas, "
+                f"{summary.stopped} detenidas · {human_size(summary.total_bytes)} · {human_time(summary.elapsed)}")
+            failed_ids = [tid for tid, r in results.items() if r.state == "error"]
+            last_summary.clear()
+            last_summary.update(
+                summary=summary, folder=out, processed=len(results),
+                go_player=lambda: session.to_page("go_to_player", summary.first_new),
+                open_folder=lambda: safely(lambda: open_path(out), "abrir la carpeta"),
+                retry_failed=(lambda: session.to_page("retry", failed_ids)) if failed_ids else None,
+            )
+        finally:
+            set_busy(False)  # the slot is app-wide: a failure here must not block every later batch
         session.to_page("show_summary")  # no page open: «Ver resumen» shows it later
 
     def go_to_player(first_new: str | None) -> None:
