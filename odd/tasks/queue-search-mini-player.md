@@ -26,5 +26,11 @@
 - T1: matches()/visible() in QueueModel (accent+case-insensitive), Queue renders only visible rows, Todas/Ninguna act on visible rows, query kept on session queue. RED: import error; GREEN: pytest 308 passed. Manual UI check pending.
 - T2: Player keeps entry/cover + listeners (changed()); now_playing()/play_icon() shared by both views; mini bar above the status line on Descargar, hidden when nothing loaded, title click opens Reproductor. RED: ImportError; GREEN: pytest 313 passed. Manual UI check pending.
 
+- T3 (user report): changing the Biblioteca folder from its menu showed the new folder but "0
+  archivos". Cause: Player.reload() created ui.timer in the clicked menu item's slot; build_menu()
+  clears the menu, deleting the timer, and NiceGUI's Timer._handle_delete cancels the running
+  callback, so load_library never finished. Not related to downloads. Fix: timer anchored to the
+  player container. Route inline (one file). No automated test (no NiceGUI UI harness); pytest 313.
+
 ## Next step
-Library reload bug during a batch (T3), then merge to local main.
+User manual check; push when the user says.

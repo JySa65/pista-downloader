@@ -59,7 +59,7 @@ class Player:
         self.video: ui.video | None = None  # set while an MP4 plays in the cover area
 
         with ui.element("div").classes("flex-1 min-h-0 w-full grid") \
-                .style("grid-template-columns: minmax(0, 1fr) 380px; grid-template-rows: minmax(0, 1fr)"):
+                .style("grid-template-columns: minmax(0, 1fr) 380px; grid-template-rows: minmax(0, 1fr)") as self.box:
             with ui.column().classes("min-h-0 gap-0 no-wrap"):
                 with ui.row().classes("w-full items-center justify-between no-wrap px-6 pt-5 pb-3 shrink-0"):
                     with ui.row().classes("items-center gap-3 no-wrap min-w-0"):
@@ -201,7 +201,10 @@ class Player:
         return Path(self.get_outdir()).expanduser() if self.get_outdir() else default_outdir()
 
     def reload(self) -> None:
-        ui.timer(0, self.reload_async, once=True)
+        # Anchor the timer to the player, not the caller's slot: a folder menu item is deleted by
+        # build_menu() mid-reload, and deleting a timer cancels its running callback (scan never finished).
+        with self.box:
+            ui.timer(0, self.reload_async, once=True)
 
     async def reload_async(self) -> None:
         """Scan and read tags off the event loop (cached per file, ~30 ms for 200 files)."""
