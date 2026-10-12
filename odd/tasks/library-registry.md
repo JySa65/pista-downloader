@@ -47,6 +47,10 @@ so a deleted/moved file still counts as "already downloaded".
   334 passed. Dry run: 358 audio ids from 532 files in 0.3 s, all 345 legacy ids found.
   Limitation: Pista's MP4s have no embedded URL (no metadata step for video) → old MP4s not imported.
   Overwrite: yt-dlp defaults (MP3 re-extracts over same path; existing merged MP4 kept).
+- Review (19 files) approved with warnings, all fixed: video keeps legacy archive ids (old MP4s
+  have no URL); record() always persists, "bootstrapped" flag in file → failed scan retried next
+  start; corrupt JSON backed up and rebuilt, invalid entries dropped; bootstrap never scans home/
+  root/mounts, 20000-path cap; recording() tested through a real BatchRunner. pytest 337 passed.
 
 ## Next step
 User manual check; push when the user says.

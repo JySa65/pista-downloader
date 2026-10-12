@@ -7,7 +7,9 @@ import pytest
 from mutagen.id3 import ID3, TXXX
 
 from pista.core.models import Track
-from pista.core.registry import Registry, bootstrap_roots, embedded_id, recording
+from pista.core.queue import BatchRunner, QueueModel
+from pista.core.registry import Registry, bootstrap_roots, embedded_id, existing_ids, recording
+from tests.chaos.conftest import track
 
 FFMPEG = shutil.which("ffmpeg")
 
@@ -36,28 +38,60 @@ def test_record_path_for_and_existing(tmp_path):
 def test_saved_atomically_and_reloaded(tmp_path):
     path = tmp_path / "cfg" / "library.json"
     reg = Registry(path)
-    reg.ready = True
     reg.record("video", "AAAAAAAAAAA", tmp_path / "v.mp4")
-    assert json.loads(path.read_text("utf-8")) == {"audio": {}, "video": {"AAAAAAAAAAA": str(tmp_path / "v.mp4")}}
+    assert json.loads(path.read_text("utf-8")) == {"bootstrapped": False, "audio": {},
+                                                   "video": {"AAAAAAAAAAA": str(tmp_path / "v.mp4")}}
     assert not list(path.parent.glob("*.tmp"))  # temp file replaced, not left behind
     assert Registry(path).path_for("video", "AAAAAAAAAAA") == tmp_path / "v.mp4"
 
 
-@pytest.mark.parametrize("content", ["{not json", "[1, 2]", '{"audio": [1]}', '{"audio": {"x": 3}}'])
-def test_corrupt_file_loads_empty(tmp_path, content):
+@pytest.mark.parametrize("content", ["{not json", "[1, 2]"])
+def test_unreadable_file_is_set_aside_and_rebuilt(tmp_path, content):
     path = tmp_path / "library.json"
     path.write_text(content, "utf-8")
     reg = Registry(path)
-    assert reg.ready  # a file exists: no bootstrap
+    assert not reg.ready  # treated as "no registry yet": bootstrap rebuilds it, legacy archives apply meanwhile
+    assert not path.exists()
+    assert [p.read_text("utf-8") for p in tmp_path.glob("library.json.corrupt-*")] == [content]
+
+
+def test_invalid_entries_are_dropped_valid_ones_kept(tmp_path):
+    path = tmp_path / "library.json"
+    path.write_text(json.dumps({"bootstrapped": True, "audio": {"AAAAAAAAAAA": "/a.mp3", "x": 3},
+                                "video": [1]}), "utf-8")
+    reg = Registry(path)
+    assert reg.ready
+    assert reg.path_for("audio", "AAAAAAAAAAA") == Path("/a.mp3")
     assert reg.path_for("audio", "x") is None
 
 
-def test_missing_file_is_not_ready_and_records_stay_in_memory(tmp_path):
+def test_records_persist_before_bootstrap_and_bootstrap_keeps_them(tmp_path):
     path = tmp_path / "library.json"
     reg = Registry(path)
     assert not reg.ready
     reg.record("audio", "AAAAAAAAAAA", tmp_path / "a.mp3")
-    assert not path.exists()  # written by bootstrap, so an interrupted bootstrap reruns next start
+    again = Registry(path)  # e.g. the app quit before (or without) a successful bootstrap
+    assert not again.ready  # the first-run scan still runs next time
+    assert again.path_for("audio", "AAAAAAAAAAA") == tmp_path / "a.mp3"
+    again.bootstrap([tmp_path / "empty"])
+    assert Registry(path).ready
+    assert Registry(path).path_for("audio", "AAAAAAAAAAA") == tmp_path / "a.mp3"
+
+
+def test_existing_ids_video_trusts_the_legacy_archive_audio_does_not(tmp_path):
+    reg = Registry(tmp_path / "library.json")
+    archive = tmp_path / "archive.txt"
+    archive.write_text("youtube AAAAAAAAAAA\nyoutube BBBBBBBBBBB\n")
+    song = tmp_path / "c.mp4"
+    song.write_bytes(b"x")
+    ids = ["AAAAAAAAAAA", "CCCCCCCCCCC", "DDDDDDDDDDD"]
+    assert existing_ids(reg, "audio", ids, archive) == {"AAAAAAAAAAA"}  # not ready: legacy archive as before
+    reg.bootstrap([])
+    reg.record("video", "CCCCCCCCCCC", song)
+    reg.record("audio", "CCCCCCCCCCC", song)
+    # Old MP4s carry no URL (never imported): their legacy ids still count. Audio was imported with paths.
+    assert existing_ids(reg, "video", ids, archive) == {"AAAAAAAAAAA", "CCCCCCCCCCC"}
+    assert existing_ids(reg, "audio", ids, archive) == {"CCCCCCCCCCC"}
 
 
 def test_embedded_id_reads_purl_or_comment(tmp_path):
@@ -121,3 +155,43 @@ def test_recording_wraps_download(tmp_path):
     skipped = recording(lambda *a: None, reg)
     assert skipped(t, "/o", "192", "", None, None, "video") is None
     assert reg.path_for("video", t.id) is None
+
+
+def test_bootstrap_roots_never_walk_home(tmp_path):
+    home = tmp_path / "home"
+    (home / "Downloads" / "Album").mkdir(parents=True)
+    (home / "Downloads" / "Album" / ".downloaded-audio.txt").write_text("")
+    (home / "Music").mkdir()
+    (home / ".downloaded.txt").write_text("")  # an archive in home itself never makes home a root
+    (home / "a" / "b" / "c").mkdir(parents=True)
+    (home / "a" / "b" / "c" / ".downloaded.txt").write_text("")  # too deep under a home output folder
+    assert set(bootstrap_roots(home, home)) == {home / "Music", home / "Downloads" / "Album"}
+
+
+def test_bootstrap_stops_at_the_file_cap(tmp_path, caplog):
+    for i in range(5):
+        mp3_with_url(tmp_path / f"{i}.mp3", f"https://www.youtube.com/watch?v=AAAAAAAAAA{i}")
+    reg = Registry(tmp_path / "library.json")
+    with caplog.at_level("WARNING", logger="pista.registry"):
+        assert reg.bootstrap([tmp_path], max_files=3) <= 3
+    assert reg.ready
+    assert sum("cap" in r.message for r in caplog.records) == 1
+
+
+def test_recording_through_a_real_batch_runner(tmp_path):
+    import asyncio
+    reg = Registry(tmp_path / "library.json")
+    m = QueueModel()
+    ok, skipped = track(1), track(2)
+    m.add_tracks([ok, skipped])
+
+    def download(t, *a):
+        return str(tmp_path / f"{t.id}.mp3") if t.id == ok.id else None
+
+    async def sleep(seconds):
+        pass
+
+    asyncio.run(BatchRunner(m, recording(download, reg), out=str(tmp_path), quality="192", fmt="audio",
+                            sleep=sleep).run())
+    assert reg.path_for("audio", ok.id) == tmp_path / f"{ok.id}.mp3"
+    assert reg.path_for("audio", skipped.id) is None

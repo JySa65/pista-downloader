@@ -19,8 +19,8 @@ from pista.core.settings import browsers_for, load_settings, save_settings
 from pista.core.progress import batch_status
 from pista.core.breaker import BREAKER
 from pista.core.queue import BatchRunner, progress_total, stop_all
-from pista.core.plan import archived_ids, plan_download
-from pista.core.registry import REGISTRY, bootstrap_roots, recording
+from pista.core.plan import plan_download
+from pista.core.registry import REGISTRY, bootstrap_roots, existing_ids, recording
 from yt_dlp.version import __version__ as yt_dlp_version
 
 from pista.core.system import (
@@ -57,8 +57,9 @@ async def bootstrap_library(outdir: str) -> None:
     BOOTSTRAP["started"] = True
     try:
         await run.io_bound(lambda: REGISTRY.bootstrap(bootstrap_roots(outdir)))
-    except Exception:  # noqa: BLE001 — the plan keeps using the legacy archives
-        logger.exception("library registry bootstrap failed")
+    except Exception:  # noqa: BLE001 — retried next start; meanwhile use what is recorded
+        logger.warning("library registry bootstrap failed; using the songs recorded so far", exc_info=True)
+        REGISTRY.ready = True
 
 
 async def pick_folder(start: str) -> str | None:
@@ -526,9 +527,7 @@ def index() -> None:
     def make_plan(consent: bool = False, include_existing: bool = False):
         out = Path((outdir.value or "").strip()).expanduser()
         items = [(t, queue.state[t.id][0], bool(queue.checked.get(t.id))) for t in queue.tracks]
-        # Until the first-run scan ends, the output folder's legacy archive keeps the old behaviour.
-        existing = (REGISTRY.existing(session.fmt, [t.id for t in queue.tracks]) if REGISTRY.ready
-                    else archived_ids(out / ARCHIVES[session.fmt]))
+        existing = existing_ids(REGISTRY, session.fmt, [t.id for t in queue.tracks], out / ARCHIVES[session.fmt])
         return plan_download(items, session.fmt, session.quality, existing, session.busy, consent, include_existing)
 
     async def confirm_and_start() -> None:

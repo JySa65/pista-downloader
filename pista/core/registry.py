@@ -14,7 +14,7 @@ from pathlib import Path
 from mutagen.id3 import ID3
 from mutagen.mp4 import MP4
 
-from .library import scan
+from .plan import archived_ids
 from .system import user_config_dir
 from .urls import is_youtube, video_id
 
@@ -24,39 +24,52 @@ FORMATS = ("audio", "video")
 EXT_FORMAT = {".mp3": "audio", ".mp4": "video"}
 # yt-dlp's per-folder download archives written by earlier versions; they mark folders worth scanning.
 LEGACY_ARCHIVES = (".downloaded-audio.txt", ".downloaded-video.txt", ".downloaded.txt")
+MAX_SCAN_FILES = 20_000  # first-run scan budget (paths walked), so a huge folder can't stall it
 
 
 class Registry:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
         self._lock = threading.Lock()  # downloads record from worker threads
-        # No file yet = never bootstrapped: until bootstrap() ends, callers fall back to the legacy archives
-        # and records stay in memory (an interrupted first scan runs again on the next start).
-        self.ready = self.path.exists()
-        self._data = self._load()
+        # `bootstrapped` is persisted: until the first-run scan has completed once, callers fall back to the
+        # legacy archives and the scan runs again on the next start. Records are saved either way.
+        # `ready` is in memory only: also set when a failed scan is given up for this run.
+        self._bootstrapped, self._data = self._load()
+        self.ready = self._bootstrapped
 
-    def _load(self) -> dict[str, dict[str, str]]:
+    def _load(self) -> tuple[bool, dict[str, dict[str, str]]]:
+        """Valid entries of the saved file; an unreadable one is set aside and treated as no registry yet."""
+        data: dict[str, dict[str, str]] = {fmt: {} for fmt in FORMATS}
         try:
             raw = json.loads(self.path.read_text("utf-8"))
-        except (OSError, ValueError):
+        except FileNotFoundError:
+            return False, data
+        except OSError:
+            log.warning("Could not read the library registry at %s", self.path, exc_info=True)
+            return False, data
+        except ValueError:
             raw = None
-        data = {fmt: {} for fmt in FORMATS}
-        if isinstance(raw, dict):
-            for fmt in FORMATS:
-                entries = raw.get(fmt)
-                if isinstance(entries, dict) and all(isinstance(k, str) and isinstance(v, str)
-                                                     for k, v in entries.items()):
-                    data[fmt] = entries
-        return data
+        if not isinstance(raw, dict):
+            aside = self.path.with_name(f"{self.path.name}.corrupt-{int(time.time())}")
+            log.warning("Corrupt library registry at %s, moved to %s; rebuilding it", self.path, aside.name)
+            try:
+                os.replace(self.path, aside)
+            except OSError:
+                log.warning("Could not move the corrupt library registry aside", exc_info=True)
+            return False, data
+        for fmt in FORMATS:
+            entries = raw.get(fmt)
+            if isinstance(entries, dict):
+                data[fmt] = {k: v for k, v in entries.items() if isinstance(k, str) and isinstance(v, str)}
+        return raw.get("bootstrapped") is True, data
 
     def _save(self) -> None:
         """Atomic, best effort (caller holds the lock): a registry that can't be written never breaks a download."""
-        if not self.ready:
-            return
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_name(self.path.name + ".tmp")
-            tmp.write_text(json.dumps(self._data, ensure_ascii=False), "utf-8")
+            tmp.write_text(json.dumps({"bootstrapped": self._bootstrapped, **self._data}, ensure_ascii=False),
+                           "utf-8")
             os.replace(tmp, self.path)
         except OSError:
             log.warning("Could not save the library registry at %s", self.path, exc_info=True)
@@ -77,14 +90,14 @@ class Registry:
             known = {vid: self._data.get(fmt, {}).get(vid) for vid in ids}
         return {vid for vid, p in known.items() if p and Path(p).is_file()}
 
-    def bootstrap(self, roots: Iterable[str | Path]) -> int:
+    def bootstrap(self, roots: Iterable[str | Path], max_files: int = MAX_SCAN_FILES) -> int:
         """Scan MP3/MP4 files under `roots` for their embedded YouTube URL; record them, mark ready and save.
 
         Returns how many files were identified. Ids recorded meanwhile (live downloads) win over the scan.
         """
         started = time.monotonic()
         found: dict[str, dict[str, str]] = {fmt: {} for fmt in FORMATS}
-        files = {f for root in roots for f in scan(root)}
+        files = _media_files(roots, max_files)
         for f in sorted(files):
             vid = embedded_id(f)
             if vid:
@@ -92,12 +105,45 @@ class Registry:
         with self._lock:
             for fmt in FORMATS:
                 self._data[fmt] = {**found[fmt], **self._data[fmt]}
-            self.ready = True
+            self.ready = self._bootstrapped = True
             self._save()
         n = sum(len(v) for v in found.values())
         log.info("Library registry bootstrap: %d audio + %d video songs from %d files in %.1f s",
                  len(found["audio"]), len(found["video"]), len(files), time.monotonic() - started)
         return n
+
+
+def _media_files(roots: Iterable[str | Path], max_files: int) -> set[Path]:
+    """MP3/MP4 files under `roots`, walking at most `max_files` paths in total."""
+    files: set[Path] = set()
+    walked = 0
+    for root in roots:
+        root = Path(root).expanduser()
+        if not root.is_dir():
+            continue
+        for p in root.rglob("*"):
+            walked += 1
+            if walked > max_files:
+                log.warning("Library registry bootstrap hit the scan cap (%d files); the rest is not imported",
+                            max_files)
+                return files
+            if p.suffix.lower() in EXT_FORMAT and p.is_file():
+                files.add(p)
+    return files
+
+
+def existing_ids(registry: "Registry", fmt: str, ids: Iterable[str], legacy_archive: str | Path) -> set[str]:
+    """The ids that already exist: in the registry, plus the output folder's legacy archive where it's trusted.
+
+    The legacy archive (ids only, no paths) counts until the first-run scan ends, and always for video: Pista's
+    MP4s carry no embedded URL, so the scan can't import them. Audio was imported with paths, so once ready it
+    is registry-only (trusting legacy audio ids would undo "deleted file -> download again").
+    """
+    ids = set(ids)
+    found = registry.existing(fmt, ids)
+    if fmt == "video" or not registry.ready:
+        found |= archived_ids(legacy_archive) & ids
+    return found
 
 
 def embedded_id(path: str | Path) -> str | None:
@@ -116,16 +162,28 @@ def embedded_id(path: str | Path) -> str | None:
 
 def bootstrap_roots(outdir: str | Path, home: Path | None = None) -> list[Path]:
     """Folders to scan on the first run: the output folder, ~/Music, and every folder with a legacy archive
-    under the output folder or among its parents up to the home dir (never the whole disk)."""
+    under the output folder or among its parents up to the home dir (never the whole disk).
+
+    The home dir, its parents and volume roots are never roots: if the output folder is one of them, only its
+    subfolders (two levels deep) that hold a legacy archive are scanned.
+    """
     home = home or Path.home()
     out = Path(outdir).expanduser()
+
+    def broad(d: Path) -> bool:
+        return d == home or d in home.parents or d.parent == d or os.path.ismount(d)
+
     roots = {d for d in (out, home / "Music") if d.is_dir()}
     if out.is_dir():
-        roots |= {p.parent for name in LEGACY_ARCHIVES for p in out.rglob(name)}
+        if broad(out):
+            roots |= {p.parent for name in LEGACY_ARCHIVES for pat in ("*/", "*/*/") for p in out.glob(pat + name)}
+        else:
+            roots |= {p.parent for name in LEGACY_ARCHIVES for p in out.rglob(name)}
         for d in out.parents:
             if d != home and home not in d.parents:
                 break
             roots |= {d for name in LEGACY_ARCHIVES if (d / name).is_file()}
+    roots = {r for r in roots if not broad(r)}
     # A root inside another root is scanned with it.
     return sorted(r for r in roots if not any(o in r.parents for o in roots))
 
