@@ -48,25 +48,30 @@ def archived_ids(archive: str | Path) -> set[str]:
 class Plan:
     count: int
     pending: list[str]
-    skip: list[str]  # selected but already in the archive: marked «Ya estaba» without downloading
+    skip: list[str]  # selected but already in the library: marked «Ya estaba» without downloading
     format_label: str
     size_bytes: int
     duration: int
     notes: list[tuple[str, str]] = field(default_factory=list)  # (kind: plain|err|info|warn, text)
     can_start: bool = False  # pending items AND the user confirmed they have the right to download them
+    existing: int = 0  # selected pending items already in the library (skipped or re-downloaded)
 
 
-def plan_download(items: list[tuple[Track, str, bool]], fmt: str, quality: str,
-                  archived: set[str], running: bool, consent: bool = False) -> Plan:
-    """items: (track, state, checked) in queue order."""
+def plan_download(items: list[tuple[Track, str, bool]], fmt: str, quality: str, existing: set[str],
+                  running: bool, consent: bool = False, include_existing: bool = False) -> Plan:
+    """items: (track, state, checked) in queue order. include_existing: re-download library songs too."""
     selected = [(t, s) for t, s, checked in items if checked]
-    pending = [t for t, s in selected if s in PENDING_STATES and t.id not in archived]
-    skip = [t.id for t, s in selected if s in PENDING_STATES and t.id in archived]
+    queued = [t for t, s in selected if s in PENDING_STATES]
+    found = [t.id for t in queued if t.id in existing]
+    pending = queued if include_existing else [t for t in queued if t.id not in existing]
+    skip = [] if include_existing else found
     had = len(skip) + sum(s in ("done", "skipped") for _, s in selected)
     failed = sum(s == "error" for _, s in selected)
     notes = []
+    if include_existing and found:
+        notes.append(("plain", f"{len(found)} ya existen en tu biblioteca y se volverán a descargar."))
     if had:
-        notes.append(("plain", f"{had} ya están en la carpeta y se omitirán."))
+        notes.append(("plain", f"{had} ya existen en tu biblioteca y se omitirán."))
     if failed:
         notes.append(("err", f"{failed} fallida(s) no se incluyen. Usa «Reintentar» en su fila."))
     if running:
@@ -82,4 +87,5 @@ def plan_download(items: list[tuple[Track, str, bool]], fmt: str, quality: str,
         duration=sum(int(t.duration or 0) for t in pending),
         notes=notes,
         can_start=bool(pending) and consent,
+        existing=len(found),
     )

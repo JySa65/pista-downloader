@@ -141,7 +141,7 @@ def test_archived_items_cost_zero_network_calls():
     m = QueueModel()
     tracks = [Track(f"{c * 11}", c, "", 1, f"https://www.youtube.com/watch?v={c * 11}", None) for c in "AB"]
     m.add_tracks(tracks)
-    plan = plan_download([(t, "queued", True) for t in tracks], "audio", "192", archived={"A" * 11}, running=False,
+    plan = plan_download([(t, "queued", True) for t in tracks], "audio", "192", existing={"A" * 11}, running=False,
                          consent=True)
     for tid in plan.skip:
         m.set_state(tid, "skipped")
@@ -220,3 +220,19 @@ def test_no_pause_after_a_skipped_track_it_made_no_youtube_request():
     asyncio.run(r.run())
     assert events[:2] == ["vid00000000", "vid00000001"]  # skipped → next one starts right away
     assert events[2:] == [1] * 5 + ["vid00000002"]  # a done track is still followed by the pause
+
+
+def test_download_never_lets_a_folder_archive_skip_it(gate, monkeypatch, tmp_path):
+    """Pista decides what to skip (library registry, in the plan): «Descargar todas» must really download."""
+    seen = []
+
+    class Fake(FakeYDL):
+        def __init__(self, opts):
+            super().__init__(opts)
+            seen.append(opts)
+
+    monkeypatch.setattr(dl, "_ydl", Fake)
+    (tmp_path / ".downloaded-audio.txt").write_text("youtube AAAAAAAAAAA\n")
+    path = dl.download(Track("AAAAAAAAAAA", "t", "c", 1, "https://youtu.be/AAAAAAAAAAA", None), tmp_path)
+    assert path == "/o/t.mp3" and "download_archive" not in seen[0]
+    assert (tmp_path / ".downloaded-audio.txt").read_text() == "youtube AAAAAAAAAAA\n"  # legacy file untouched

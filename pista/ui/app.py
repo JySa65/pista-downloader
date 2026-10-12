@@ -20,6 +20,7 @@ from pista.core.progress import batch_status
 from pista.core.breaker import BREAKER
 from pista.core.queue import BatchRunner, progress_total, stop_all
 from pista.core.plan import archived_ids, plan_download
+from pista.core.registry import REGISTRY, bootstrap_roots, recording
 from yt_dlp.version import __version__ as yt_dlp_version
 
 from pista.core.system import (
@@ -46,6 +47,18 @@ RETRY_DELAY = 10  # seconds before the automatic second attempt of failed items
 RECONNECT_TIMEOUT = 3600  # a locked or sleeping Mac drops the window's connection; keep the page alive meanwhile
 logger = logging.getLogger("pista")
 CONSENT = {"ok": False}  # «Confirmo que tengo derecho…»: remembered for this app session only
+BOOTSTRAP = {"started": False}  # first-run library scan: once per app run
+
+
+async def bootstrap_library(outdir: str) -> None:
+    """First run only: fill the library registry from the songs already on disk, off the event loop."""
+    if REGISTRY.ready or BOOTSTRAP["started"]:
+        return
+    BOOTSTRAP["started"] = True
+    try:
+        await run.io_bound(lambda: REGISTRY.bootstrap(bootstrap_roots(outdir)))
+    except Exception:  # noqa: BLE001 — the plan keeps using the legacy archives
+        logger.exception("library registry bootstrap failed")
 
 
 async def pick_folder(start: str) -> str | None:
@@ -397,6 +410,7 @@ def index() -> None:
     cookies_browser.on_value_change(on_cookies_change)
 
     outdir.on_value_change(lambda: setattr(session, "outdir", outdir.value))
+    background_tasks.create(bootstrap_library(outdir.value or ""))
     mix_limit.on_value_change(lambda: setattr(mix_value, "text", f"{int(mix_limit.value)} / 50"))
 
     def update_counter() -> None:
@@ -509,11 +523,13 @@ def index() -> None:
         if not session.busy:
             background_tasks.create(start_download())  # otherwise the running batch picks them up
 
-    def make_plan(consent: bool = False):
+    def make_plan(consent: bool = False, include_existing: bool = False):
         out = Path((outdir.value or "").strip()).expanduser()
         items = [(t, queue.state[t.id][0], bool(queue.checked.get(t.id))) for t in queue.tracks]
-        return plan_download(items, session.fmt, session.quality, archived_ids(out / ARCHIVES[session.fmt]),
-                             session.busy, consent)
+        # Until the first-run scan ends, the output folder's legacy archive keeps the old behaviour.
+        existing = (REGISTRY.existing(session.fmt, [t.id for t in queue.tracks]) if REGISTRY.ready
+                    else archived_ids(out / ARCHIVES[session.fmt]))
+        return plan_download(items, session.fmt, session.quality, existing, session.busy, consent, include_existing)
 
     async def confirm_and_start() -> None:
         if not queue.tracks:
@@ -528,7 +544,7 @@ def index() -> None:
         plan = await confirm_dialog(make_plan, lambda: outdir.value, change_outdir, CONSENT)
         if plan is None:
             return
-        for tid in plan.skip:  # already in this format's archive: no network needed
+        for tid in plan.skip:  # already in the library in this format: no network needed
             queue.mark_done(tid, session.fmt, None, 0)
         for tid in plan.pending:
             if tid in queue.state and queue.state[tid][0] == "stopped":
@@ -549,7 +565,7 @@ def index() -> None:
             out = str(Path(outdir.value.strip()).expanduser())
             # Runs to the end even if this page is reloaded meanwhile: from here on, UI goes through the session.
             return BatchRunner(
-                session.queue, download, out=out, quality=session.quality, fmt=session.fmt, run_io=run.io_bound,
+                session.queue, recording(download, REGISTRY), out=out, quality=session.quality, fmt=session.fmt, run_io=run.io_bound,
                 retry_delay=RETRY_DELAY, log=log, status=set_status, fmt_text=format_text(),
                 on_progress=lambda: session.to_page("set_total"))
 

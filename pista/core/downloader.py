@@ -33,6 +33,7 @@ if _plugins := find_plugin_dir():
 # Only YouTube extractors: yt-dlp's generic extractor would otherwise read metadata from any web page.
 ALLOWED_EXTRACTORS = ["youtube", "youtube:tab", "youtube:playlist", "youtubeytbe"]
 
+# Legacy per-folder yt-dlp archives: only read (plan fallback until the library registry is ready).
 ARCHIVES = {"audio": ".downloaded-audio.txt", "video": ".downloaded-video.txt"}
 
 
@@ -223,7 +224,11 @@ def download(
     cancel_event: threading.Event | None = None,
     fmt: str = "audio",
 ) -> str | None:
-    """Download track as MP3 or MP4. Returns the real file path, or None if already archived.
+    """Download track as MP3 or MP4. Returns the real file path, or None if yt-dlp downloaded nothing.
+
+    What to skip is decided before (library registry, in the plan), so no download archive is used:
+    «Descargar todas» really downloads. A file already at the target path follows yt-dlp's defaults
+    (an MP3 is re-extracted over it; a merged MP4 is kept and reported as downloaded).
 
     Raises Cancelled when cancel_event is set mid-download.
     """
@@ -243,12 +248,10 @@ def download(
             on_progress(0.0, phase)
 
     target = target_dir(outdir, subfolder)
-    repair_archive(Path(outdir) / ARCHIVES[fmt])
     opts = {
         **format_opts(fmt, quality),
         "noplaylist": True,
         "outtmpl": str(target / f"%(title).{MAX_NAME_BYTES}B.%(ext)s"),  # .NB = truncate to N bytes
-        "download_archive": str(Path(outdir) / ARCHIVES[fmt]),
         "progress_hooks": [hook],
         "postprocessor_hooks": [pp_hook],
     }
@@ -259,7 +262,7 @@ def download(
         info = ydl.extract_info(track.url, download=True)
     downloads = (info or {}).get("requested_downloads") or []
     if not downloads:
-        return None  # skipped: already in download archive
+        return None  # yt-dlp reported nothing downloaded
     return downloads[0]["filepath"]
 
 

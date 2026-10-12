@@ -317,14 +317,17 @@ def log_class(line: str) -> str:
     return "ok" if "✓" in line else ""
 
 
-async def confirm_dialog(make_plan: Callable[[bool], Plan], folder: Callable[[], str],
+async def confirm_dialog(make_plan: Callable[[bool, bool], Plan], folder: Callable[[], str],
                          change_folder: Callable, consent: dict) -> Plan | None:
-    """«¿Descargar N pista(s)?» review; returns the plan to run, or None if cancelled."""
+    """«¿Descargar N pista(s)?» review; returns the plan to run, or None if cancelled.
+
+    make_plan(consent, include_existing). When some songs already exist in the library, the user picks
+    «Descargar sin las existentes» (the summary shown) or «Descargar todas» (re-downloads them too)."""
     with closable(ui.dialog()) as dialog, ui.card().classes("yt-modal yt-confirm w-[500px] max-w-[95vw] max-h-[90vh] overflow-auto p-0 gap-0 no-wrap"):
 
         @ui.refreshable
         def body() -> None:
-            plan = make_plan(consent["ok"])
+            plan = make_plan(consent["ok"], False)
             with ui.column().classes("px-6 pt-[22px] pb-1.5 gap-1 w-full"):
                 ui.label(f"¿Descargar {plan.count} pista(s)?").classes("text-[17px] font-semibold")
                 ui.label("Revisa antes de empezar.").classes("text-[13px] yt-muted")
@@ -348,12 +351,22 @@ async def confirm_dialog(make_plan: Callable[[bool], Plan], folder: Callable[[],
                     ui.label("✓" if consent["ok"] else "")
                 ui.label("Confirmo que tengo derecho a descargar este contenido (es mío, tiene licencia libre o "
                          "tengo permiso) y que soy responsable de su uso.")
+            every = make_plan(consent["ok"], True) if plan.existing else None
+            if every:
+                n = plan.existing
+                ui.label(f"{n} canción ya existe en tu biblioteca" if n == 1 else
+                         f"{n} canciones ya existen en tu biblioteca").classes("mx-6 mb-3 text-[13px] font-medium")
             with ui.row().classes("yt-panel yt-line-t w-full justify-end gap-2 px-6 py-3.5 no-wrap"):
                 button("Cancelar", "yt-btn", lambda: dialog.submit(None))
-                go = button("Descargar", "yt-primary yt-confirm-go", lambda: dialog.submit(plan) if plan.can_start else None)
-                if not plan.can_start:
-                    # Not the `disabled` attribute: Quasar forces [disabled] to opacity .6 (!important, layered).
-                    go.classes("yt-inactive").props('aria-disabled="true"')
+                if every:
+                    start_button("Descargar todas", "yt-btn", every)
+                start_button("Descargar sin las existentes" if every else "Descargar", "yt-primary yt-confirm-go", plan)
+
+        def start_button(text: str, cls: str, plan: Plan) -> None:
+            go = button(text, cls, lambda: dialog.submit(plan) if plan.can_start else None)
+            if not plan.can_start:
+                # Not the `disabled` attribute: Quasar forces [disabled] to opacity .6 (!important, layered).
+                go.classes("yt-inactive").props('aria-disabled="true"')
 
         async def change() -> None:
             await change_folder()

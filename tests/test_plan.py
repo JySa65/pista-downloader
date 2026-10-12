@@ -42,27 +42,27 @@ def test_plan_counts_pending_size_duration_and_notes():
     items = [
         (t("q", 100), "queued", True),
         (t("s", 50), "stopped", True),
-        (t("arch", 70), "queued", True),     # in the archive -> skipped
+        (t("arch", 70), "queued", True),     # already in the library -> skipped
         (t("d", 60), "done", True),          # already downloaded in this queue
         (t("e", 80), "error", True),         # needs «Reintentar»
         (t("off", 90), "queued", False),     # not selected
     ]
-    p = plan_download(items, "audio", "128", archived={"arch"}, running=False)
+    p = plan_download(items, "audio", "128", existing={"arch"}, running=False)
     assert p.count == 2 and p.pending == ["q", "s"] and p.skip == ["arch"]
     assert p.format_label == "Audio · MP3 128 kbps"
     assert p.size_bytes == (100 + 50) * 128_000 // 8
     assert p.duration == 150
     assert p.notes == [
-        ("plain", "2 ya están en la carpeta y se omitirán."),
+        ("plain", "2 ya existen en tu biblioteca y se omitirán."),
         ("err", "1 fallida(s) no se incluyen. Usa «Reintentar» en su fila."),
     ]
 
 
 def test_plan_running_and_nothing_pending_notes():
-    p = plan_download([(t("d"), "done", True)], "video", "720p", archived=set(), running=True)
+    p = plan_download([(t("d"), "done", True)], "video", "720p", existing=set(), running=True)
     assert p.count == 0 and p.format_label == "Video · MP4 720p"
     assert p.notes == [
-        ("plain", "1 ya están en la carpeta y se omitirán."),
+        ("plain", "1 ya existen en tu biblioteca y se omitirán."),
         ("info", "Ya hay una descarga en curso; estas se añaden a la misma cola."),
         ("warn", "No hay pistas pendientes seleccionadas."),
     ]
@@ -73,3 +73,21 @@ def test_consent_required_to_start():
     assert plan_download(items, "audio", "128", set(), running=False).can_start is False
     assert plan_download(items, "audio", "128", set(), running=False, consent=True).can_start is True
     assert plan_download([], "audio", "128", set(), running=False, consent=True).can_start is False
+
+
+def test_include_existing_redownloads_library_songs():
+    items = [(t("q", 100), "queued", True), (t("lib", 70), "queued", True), (t("d", 60), "done", True)]
+    skip = plan_download(items, "audio", "128", existing={"lib"}, running=False, consent=True)
+    assert skip.pending == ["q"] and skip.skip == ["lib"] and skip.existing == 1
+    assert skip.notes == [("plain", "2 ya existen en tu biblioteca y se omitirán.")]
+    again = plan_download(items, "audio", "128", existing={"lib"}, running=False, consent=True, include_existing=True)
+    assert again.pending == ["q", "lib"] and again.skip == [] and again.existing == 1
+    assert again.size_bytes == (100 + 70) * 128_000 // 8
+    assert again.notes == [("plain", "1 ya existen en tu biblioteca y se volverán a descargar."),
+                           ("plain", "1 ya existen en tu biblioteca y se omitirán.")]
+
+
+def test_only_existing_songs_can_start_only_when_redownloading():
+    items = [(t("lib", 70), "queued", True)]
+    assert plan_download(items, "audio", "128", {"lib"}, running=False, consent=True).can_start is False
+    assert plan_download(items, "audio", "128", {"lib"}, False, True, include_existing=True).can_start is True
