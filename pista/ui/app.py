@@ -57,9 +57,8 @@ async def bootstrap_library(outdir: str) -> None:
     BOOTSTRAP["started"] = True
     try:
         await run.io_bound(lambda: REGISTRY.bootstrap(bootstrap_roots(outdir)))
-    except Exception:  # noqa: BLE001 — retried next start; meanwhile use what is recorded
-        logger.warning("library registry bootstrap failed; using the songs recorded so far", exc_info=True)
-        REGISTRY.ready = True
+    except Exception:  # noqa: BLE001 — retried next start; the legacy archives keep counting meanwhile
+        logger.warning("library registry bootstrap failed; using the legacy archives this run", exc_info=True)
 
 
 async def pick_folder(start: str) -> str | None:

@@ -51,6 +51,10 @@ so a deleted/moved file still counts as "already downloaded".
   have no URL); record() always persists, "bootstrapped" flag in file → failed scan retried next
   start; corrupt JSON backed up and rebuilt, invalid entries dropped; bootstrap never scans home/
   root/mounts, 20000-path cap; recording() tested through a real BatchRunner. pytest 337 passed.
+- Review (19 files) approved; fixed: legacy audio ids count when the registry doesn't know the song
+  (bounded scan may miss folders), known ids decided by path (R3-001); failed bootstrap no longer
+  marks ready, legacy archives keep counting that run (R3-002). Noted: confirm dialog stats files on
+  the event loop (R3-003). pytest 337 passed.
 
 ## Next step
 User manual check; push when the user says.

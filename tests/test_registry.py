@@ -78,7 +78,7 @@ def test_records_persist_before_bootstrap_and_bootstrap_keeps_them(tmp_path):
     assert Registry(path).path_for("audio", "AAAAAAAAAAA") == tmp_path / "a.mp3"
 
 
-def test_existing_ids_video_trusts_the_legacy_archive_audio_does_not(tmp_path):
+def test_existing_ids_legacy_archive_counts_unless_the_registry_knows_the_song(tmp_path):
     reg = Registry(tmp_path / "library.json")
     archive = tmp_path / "archive.txt"
     archive.write_text("youtube AAAAAAAAAAA\nyoutube BBBBBBBBBBB\n")
@@ -89,8 +89,12 @@ def test_existing_ids_video_trusts_the_legacy_archive_audio_does_not(tmp_path):
     reg.bootstrap([])
     reg.record("video", "CCCCCCCCCCC", song)
     reg.record("audio", "CCCCCCCCCCC", song)
-    # Old MP4s carry no URL (never imported): their legacy ids still count. Audio was imported with paths.
+    # Old MP4s carry no URL (never imported): their legacy ids still count.
     assert existing_ids(reg, "video", ids, archive) == {"AAAAAAAAAAA", "CCCCCCCCCCC"}
+    # Audio: a legacy id the bounded scan missed still counts...
+    assert existing_ids(reg, "audio", ids, archive) == {"AAAAAAAAAAA", "CCCCCCCCCCC"}
+    # ...but once the registry knows it, its path decides: a deleted file is downloaded again.
+    reg.record("audio", "AAAAAAAAAAA", tmp_path / "deleted.mp3")
     assert existing_ids(reg, "audio", ids, archive) == {"CCCCCCCCCCC"}
 
 

@@ -136,13 +136,17 @@ def existing_ids(registry: "Registry", fmt: str, ids: Iterable[str], legacy_arch
     """The ids that already exist: in the registry, plus the output folder's legacy archive where it's trusted.
 
     The legacy archive (ids only, no paths) counts until the first-run scan ends, and always for video: Pista's
-    MP4s carry no embedded URL, so the scan can't import them. Audio was imported with paths, so once ready it
-    is registry-only (trusting legacy audio ids would undo "deleted file -> download again").
+    MP4s carry no embedded URL, so the scan can't import them. For audio it still counts for ids the registry
+    doesn't know (the scan is bounded and may miss folders); an id the registry knows is decided by its path,
+    so a deleted file is downloaded again.
     """
     ids = set(ids)
     found = registry.existing(fmt, ids)
+    legacy = archived_ids(legacy_archive) & ids
     if fmt == "video" or not registry.ready:
-        found |= archived_ids(legacy_archive) & ids
+        found |= legacy
+    else:
+        found |= {vid for vid in legacy if registry.path_for(fmt, vid) is None}
     return found
 
 
