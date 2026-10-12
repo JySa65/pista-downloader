@@ -535,22 +535,25 @@ def index() -> None:
         # Only one batch across pages: a second page appends to it (see confirm_and_start), never runs another.
         if not has_ffmpeg() or not (outdir.value or "").strip() or not session.begin():
             return
-        out = str(Path(outdir.value.strip()).expanduser())
-        # Runs to the end even if this page is reloaded meanwhile: from here on, UI goes through the session.
-        runner = session.runner = BatchRunner(
-            session.queue, download, out=out, quality=session.quality, fmt=session.fmt, run_io=run.io_bound,
-            retry_delay=RETRY_DELAY, log=log, status=set_status, fmt_text=format_text(),
-            on_progress=lambda: session.to_page("set_total"))
-        set_busy(True)
-        try:
+        summary = None
+        try:  # everything after begin() is inside: any failure must release the batch slot
+            out = str(Path(outdir.value.strip()).expanduser())
+            # Runs to the end even if this page is reloaded meanwhile: from here on, UI goes through the session.
+            runner = session.runner = BatchRunner(
+                session.queue, download, out=out, quality=session.quality, fmt=session.fmt, run_io=run.io_bound,
+                retry_delay=RETRY_DELAY, log=log, status=set_status, fmt_text=format_text(),
+                on_progress=lambda: session.to_page("set_total"))
+            set_busy(True)
             summary = await runner.run()
         except Exception as e:  # never leave the UI stuck in «descargando»
             logger.exception("batch failed")
             session.to_page("notify", f"La descarga se interrumpió por un error: {short_error(str(e))}", "negative")
-            set_busy(False)
-            return
         finally:
             session.runner = None
+            if summary is None:  # failed or cancelled: the slot must not stay taken
+                set_busy(False)
+        if summary is None:
+            return
         results = runner.results
         session.to_page("set_total")
         log(f"Resumen: {summary.done} descargadas, {summary.skipped} ya estaban, {summary.failed} fallidas, "
