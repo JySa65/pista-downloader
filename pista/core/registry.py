@@ -3,6 +3,7 @@
 Kept in the user config dir, so a song downloaded into one folder is known when another folder is chosen.
 A song "exists" only while its file is still at the recorded path (a deleted/moved file downloads again).
 """
+import inspect
 import json
 import logging
 import os
@@ -31,6 +32,7 @@ class Registry:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
         self._lock = threading.Lock()  # downloads record from worker threads
+        self._writable = True  # False when the file exists but couldn't be read: never overwrite it blind
         # `bootstrapped` is persisted: until the first-run scan has completed once, callers fall back to the
         # legacy archives and the scan runs again on the next start. Records are saved either way.
         # `ready` is in memory only: also set when a failed scan is given up for this run.
@@ -45,7 +47,9 @@ class Registry:
         except FileNotFoundError:
             return False, data
         except OSError:
-            log.warning("Could not read the library registry at %s", self.path, exc_info=True)
+            log.warning("Could not read the library registry at %s; not saving to it this run", self.path,
+                        exc_info=True)
+            self._writable = False
             return False, data
         except ValueError:
             raw = None
@@ -65,6 +69,8 @@ class Registry:
 
     def _save(self) -> None:
         """Atomic, best effort (caller holds the lock): a registry that can't be written never breaks a download."""
+        if not self._writable:
+            return
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_name(self.path.name + ".tmp")
@@ -194,10 +200,15 @@ def bootstrap_roots(outdir: str | Path, home: Path | None = None) -> list[Path]:
 
 def recording(download: Callable, registry: "Registry") -> Callable:
     """Wrap downloader.download (as BatchRunner calls it) so every real download is recorded."""
-    def run(track, outdir, quality="192", subfolder="", on_progress=None, cancel_event=None, fmt="audio"):
-        path = download(track, outdir, quality, subfolder, on_progress, cancel_event, fmt)
+    from .downloader import download as real  # BatchRunner calls with the real download's shape
+    sig = inspect.signature(real)
+
+    def run(*args, **kwargs):  # pass the call through untouched; read track/fmt by the real signature
+        path = download(*args, **kwargs)
         if path:
-            registry.record(fmt, track.id, path)
+            call = sig.bind(*args, **kwargs)
+            call.apply_defaults()
+            registry.record(call.arguments["fmt"], call.arguments["track"].id, path)
         return path
     return run
 

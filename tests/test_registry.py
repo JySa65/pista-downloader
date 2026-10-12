@@ -199,3 +199,38 @@ def test_recording_through_a_real_batch_runner(tmp_path):
                             sleep=sleep).run())
     assert reg.path_for("audio", ok.id) == tmp_path / f"{ok.id}.mp3"
     assert reg.path_for("audio", skipped.id) is None
+
+
+def test_recording_reads_fmt_and_track_from_the_real_download_signature(tmp_path, monkeypatch):
+    import pista.core.downloader as dl
+
+    calls = []
+
+    def fake(track, outdir, quality="192", subfolder="", on_progress=None, cancel_event=None, fmt="audio"):
+        calls.append((quality, subfolder, fmt))
+        return str(tmp_path / "x.mp4")
+
+    reg = Registry(tmp_path / "library.json")
+    t = track(1)
+    recording(fake, reg)(t, "/o", "720p", "Album", None, None, "video")  # positional, as BatchRunner calls it
+    assert calls == [("720p", "Album", "video")]
+    assert reg.path_for("video", t.id) == tmp_path / "x.mp4"
+    assert list(__import__("inspect").signature(dl.download).parameters)[:7] == [
+        "track", "outdir", "quality", "subfolder", "on_progress", "cancel_event", "fmt"]
+
+
+def test_an_unreadable_registry_file_is_never_overwritten(tmp_path, monkeypatch):
+    p = tmp_path / "library.json"
+    p.write_text('{"bootstrapped": true, "audio": {"AAAAAAAAAAA": "/a.mp3"}, "video": {}}')
+    real = Path.read_text
+
+    def flaky(self, *a, **k):
+        if self == p:
+            raise PermissionError("busy")
+        return real(self, *a, **k)
+
+    monkeypatch.setattr(Path, "read_text", flaky)
+    reg = Registry(p)
+    monkeypatch.setattr(Path, "read_text", real)
+    reg.record("audio", "BBBBBBBBBBB", "/b.mp3")
+    assert "AAAAAAAAAAA" in p.read_text()  # the intact file survived

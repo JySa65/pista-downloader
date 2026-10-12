@@ -55,6 +55,10 @@ so a deleted/moved file still counts as "already downloaded".
   (bounded scan may miss folders), known ids decided by path (R3-001); failed bootstrap no longer
   marks ready, legacy archives keep counting that run (R3-002). Noted: confirm dialog stats files on
   the event loop (R3-003). pytest 337 passed.
+- Review approved; fixed: a library.json that exists but can't be read is never overwritten that run
+  (R3-001); recording() passes the call through and reads track/fmt by binding the real
+  downloader.download signature (R3-002). +2 tests; pytest 339 passed. Live check: mix
+  "Mix - Regional Mexican music" → 26/50 already exist, real registry bootstrapped 406 audio ids.
 
 ## Next step
 User manual check; push when the user says.
