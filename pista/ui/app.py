@@ -41,6 +41,7 @@ FORMATS = {"audio": "Audio · MP3", "video": "Video · MP4"}
 TAGS = {"video": "Video", "playlist": "Playlist", "mix": "Mix"}
 FMT_NAME = {"audio": "MP3", "video": "MP4"}
 RETRY_DELAY = 10  # seconds before the automatic second attempt of failed items
+RECONNECT_TIMEOUT = 3600  # a locked or sleeping Mac drops the window's connection; keep the page alive meanwhile
 logger = logging.getLogger("pista")
 CONSENT = {"ok": False}  # «Confirmo que tengo derecho…»: remembered for this app session only
 
@@ -580,7 +581,7 @@ def run_app() -> None:
     if browser:
         # `show` opens the default browser; the server still only listens on 127.0.0.1.
         ui.run(reload=False, title="Pista", favicon=theme.ICON_SVG, host=HOST, port=port,
-               show=os.environ.get("PISTA_NO_BROWSER") != "1")
+               reconnect_timeout=RECONNECT_TIMEOUT, show=os.environ.get("PISTA_NO_BROWSER") != "1")
     else:
         app.native.window_args["maximized"] = True  # create_window kwarg: Cocoa, WinForms, GTK and Qt honor it
         if sys.platform.startswith("linux"):
@@ -591,4 +592,4 @@ def run_app() -> None:
             if getattr(sys, "frozen", False):
                 app.native.start_args["gui"] = "qt"  # the Linux build bundles the Qt backend
         ui.run(native=True, reload=False, title="Pista", window_size=(1100, 740),
-               host=HOST, port=port, favicon=theme.ICON_SVG)
+               host=HOST, port=port, reconnect_timeout=RECONNECT_TIMEOUT, favicon=theme.ICON_SVG)
