@@ -5,7 +5,7 @@ everything from here and attaches itself; the batch's UI side effects go to whic
 last (or nowhere, if none is open). Plain Python, so it can be tested without NiceGUI.
 """
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from pista.core.queue import QueueModel
 
@@ -38,6 +38,7 @@ class Session:
     log_lines: list[str] = field(default_factory=list)
     queue: SharedQueue = field(default_factory=SharedQueue)
     pages: list = field(default_factory=list)  # open pages, oldest first; the last one gets the updates
+    ffmpeg_warned: bool = False  # the missing-ffmpeg warning is logged once per app run, not per page build
 
     @property
     def page(self) -> Any:
@@ -64,6 +65,26 @@ class Session:
             return False
         self.busy = True
         return True
+
+    async def run_batch(self, make_runner: Callable[[], Any], set_busy: Callable[[bool], None],
+                        on_error: Callable[[Exception], None]) -> tuple[Any, Any]:
+        """Run one batch in the slot claimed by begin(); returns (runner, summary).
+
+        On failure (on_error is called inside the except block) or cancellation the slot is released here;
+        on success summary is set and the caller releases it once the summary is shown.
+        """
+        runner = summary = None
+        try:  # everything after begin() is inside: any failure must release the batch slot
+            runner = self.runner = make_runner()
+            set_busy(True)
+            summary = await runner.run()
+        except Exception as e:  # never leave the UI stuck in «descargando»
+            on_error(e)
+        finally:
+            self.runner = None
+            if summary is None:  # failed or cancelled: the slot must not stay taken
+                set_busy(False)
+        return runner, summary
 
 
 SESSION = Session()

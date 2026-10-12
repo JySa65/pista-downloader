@@ -57,3 +57,27 @@ def test_filter_does_not_change_selection_or_downloads():
     m.query = "dos"
     assert [t.id for t in m.selected()] == ["a", "b", "c"]
     assert m.next_pending().id == "a"
+
+
+def test_progress_for_a_filtered_out_track_paints_nothing_and_does_not_fail():
+    import asyncio
+
+    from nicegui import Client, core
+    from nicegui.page import page
+
+    from pista.ui.components import Queue
+    from pista.ui.session import SharedQueue
+
+    async def main():
+        core.loop = asyncio.get_running_loop()
+        with Client(page("/"), request=None):
+            m = SharedQueue()
+            m.add_tracks([track("a", "Uno"), track("b", "Dos")])
+            m.query = "uno"
+            q = Queue(on_change=lambda: None, fmt_label=lambda: "MP3", model=m)
+            assert set(q.rows) == {"a"}
+            m.set_state("b", "running", 50.0)  # hidden: no row to paint
+            m.set_state("a", "running", 40.0)
+            assert set(q.rows) == {"a"}
+            return q.rows["a"]["pill_text"].text
+    assert "40" in asyncio.run(main())

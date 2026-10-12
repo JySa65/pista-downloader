@@ -31,6 +31,9 @@
   clears the menu, deleting the timer, and NiceGUI's Timer._handle_delete cancels the running
   callback, so load_library never finished. Not related to downloads. Fix: timer anchored to the
   player container. Route inline (one file). No automated test (no NiceGUI UI harness); pytest 313.
+- Review (11 files) approved; follow-ups done: Session.run_batch releases the batch slot on
+  build/run failure and cancellation (4 tests, RED AttributeError); filtered Queue repaint test;
+  ffmpeg warning logged once per app run. pytest 318 passed.
 
 ## Next step
 User manual check; push when the user says.
