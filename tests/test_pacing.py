@@ -159,7 +159,7 @@ def test_update_check_runs_at_most_once_per_session(monkeypatch):
     assert a == b and a[0] == "new" and len(n) == 1
 
 
-def paced_batch(n, pace=(5, 10), on_sleep=None):
+def paced_batch(n, pace=(8, 15), on_sleep=None):
     """Run n successful downloads; returns (download order with sleeps between, statuses, logs)."""
     import asyncio
     events, statuses, logs = [], [], []
@@ -178,16 +178,16 @@ def paced_batch(n, pace=(5, 10), on_sleep=None):
     return events, statuses, logs
 
 
-def test_default_pace_is_5_to_10_seconds():
-    assert (PACE_MIN, PACE_MAX) == (5, 10)
+def test_default_pace_is_8_to_15_seconds():
+    assert (PACE_MIN, PACE_MAX) == (8, 15)
 
 
-def test_no_pause_before_the_first_download_then_5_to_10_s_between_downloads():
+def test_no_pause_before_the_first_download_then_8_to_15_s_between_downloads():
     events, statuses, logs = paced_batch(3)
     assert events[0] == "vid00000000"  # the first download starts right away
     ids = [i for i, e in enumerate(events) if isinstance(e, str)]
     for a, b in zip(ids, ids[1:]):
-        assert 5 <= sum(events[a + 1:b]) <= 10  # one paced pause between consecutive downloads
+        assert 8 <= sum(events[a + 1:b]) <= 15  # one paced pause between consecutive downloads
     assert sum(isinstance(e, str) for e in events) == 3
 
 

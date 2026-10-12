@@ -21,7 +21,7 @@ from .models import Track
 from .progress import batch_status, item_progress, pace_status
 
 # Random pause between downloads, as yt-dlp recommends to stay under YouTube's bot check.
-PACE_MIN, PACE_MAX = 5, 10
+PACE_MIN, PACE_MAX = 8, 15
 
 STATES = ("queued", "running", "done", "skipped", "error", "stopped")
 FINISHED = ("done", "skipped", "error", "stopped")
