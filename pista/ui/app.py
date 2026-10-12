@@ -321,9 +321,13 @@ def index() -> None:
             ui.notify(f"Solo se aceptan links de YouTube (youtube.com, youtu.be). Se ignoraron {len(rejected)}.",
                       type="warning")
         new = list(dict.fromkeys(u for u in found if is_youtube(u) and u not in links))
+        dupes = {u for u in found if u in links}
+        if dupes:
+            ui.notify("Ese link ya está en la lista." if len(dupes) == 1 else f"{len(dupes)} links ya estaban en la lista.",
+                      type="info")
         if new:
             set_links(links + new)
-        return len(new) + len(rejected)  # rejected links already got their own message
+        return len(new) + len(rejected) + len(dupes)  # rejected and duplicate links already got their own message
 
     def add_links(text: str) -> None:
         if not add_urls(text) and text and text.strip():
