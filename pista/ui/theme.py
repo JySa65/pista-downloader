@@ -248,6 +248,10 @@ button:disabled { opacity: .45; cursor: default; pointer-events: none; }
 .yt-skip { width: 40px; height: 40px; border: 0; border-radius: 50%; background: transparent; color: var(--text-2);
   font-size: 14px; cursor: pointer; }
 .yt-skip:hover { background: var(--btn-hover); }
+/* Now-playing bar on the Descargar tab: the Reproductor's transport, scaled down. */
+.yt-mini .yt-play { width: 32px; height: 32px; font-size: 12px; }
+.yt-mini .yt-skip { width: 30px; height: 30px; font-size: 11px; }
+.yt-minicover { width: 34px; height: 34px; border-radius: 5px; border: 1px solid var(--field-border); object-fit: cover; }
 .yt-menu { background: var(--bar); border: 1px solid var(--btn-border); border-radius: 9px; padding: 6px; }
 .yt-menu .q-item { color: var(--text-2); border-radius: 6px; min-height: 32px; }
 """

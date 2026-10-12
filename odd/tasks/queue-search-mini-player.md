@@ -20,10 +20,11 @@
 
 ## Tasks
 - [x] T1 Queue search box — Route: delegated writer (components.py + app.py + tests).
-- [ ] T2 Mini player on Descargar — Route: delegated writer (player.py + app.py + tests).
+- [x] T2 Mini player on Descargar — Route: delegated writer (player.py + app.py + tests).
 
 ## Progress / evidence
 - T1: matches()/visible() in QueueModel (accent+case-insensitive), Queue renders only visible rows, Todas/Ninguna act on visible rows, query kept on session queue. RED: import error; GREEN: pytest 308 passed. Manual UI check pending.
+- T2: Player keeps entry/cover + listeners (changed()); now_playing()/play_icon() shared by both views; mini bar above the status line on Descargar, hidden when nothing loaded, title click opens Reproductor. RED: ImportError; GREEN: pytest 313 passed. Manual UI check pending.
 
 ## Next step
-T2 writer.
+Library reload bug during a batch (T3), then merge to local main.

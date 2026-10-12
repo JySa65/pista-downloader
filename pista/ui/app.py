@@ -31,7 +31,7 @@ from pista.core.urls import classify, is_youtube
 
 from . import theme
 from .components import Queue, about_dialog, attrs, ask_mix, button, close_dialogs, confirm_dialog, log_class, log_file_dialog, summary_dialog
-from .player import Player
+from .player import MiniPlayer, Player
 from .security import HOST, harden, pick_port
 from .session import SESSION as session
 
@@ -281,6 +281,7 @@ def index() -> None:
                 button("Reanudar ahora", "yt-btn yt-sm", lambda: (BREAKER.resume(), poll()))
                 button("Detener", "yt-danger yt-sm", lambda: stop())
             cooldown_bar.set_visibility(False)
+            mini_slot = ui.column().classes("w-full gap-0 shrink-0")  # now-playing bar, filled once the player exists
             with ui.row().classes("yt-panel yt-line-t w-full items-center gap-3 px-6 py-3 no-wrap shrink-0"):
                 with ui.column().classes("flex-1 min-w-0 gap-1.5"):
                     with ui.row().classes("w-full justify-between text-xs yt-muted no-wrap gap-3"):
@@ -299,6 +300,8 @@ def index() -> None:
     with player_tab:
         player = Player(get_outdir=lambda: outdir.value, pick_folder=pick_folder)
     player_tab.set_visibility(False)
+    with mini_slot:
+        MiniPlayer(player, on_open=lambda: show_tab("player"))
 
     def show_tab(name: str) -> None:
         is_dl = name == "download"

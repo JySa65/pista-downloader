@@ -32,6 +32,15 @@ def media_url(folder: Path, file: Path) -> str:
     return f"{_routes[key]}/{quote(file.relative_to(folder).as_posix())}"
 
 
+def now_playing(e: Entry | None) -> tuple[str, str] | None:
+    """(title, artist) of the loaded entry for every now-playing view; None when nothing is loaded."""
+    return None if e is None else (e.title, "" if e.artist == "—" else e.artist)
+
+
+def play_icon(playing: bool) -> str:
+    return "❚❚" if playing else "▶"
+
+
 class Player:
     def __init__(self, get_outdir: Callable[[], str], pick_folder: Callable) -> None:
         self.get_outdir = get_outdir
@@ -41,6 +50,9 @@ class Player:
         self.entries: list[Entry] = []
         self.cache = MetaCache()  # (path, mtime, size) -> tags/duration
         self.cur: Path | None = None  # the playing file (may be hidden by the filter)
+        self.entry: Entry | None = None  # its library entry (title/artist for the now-playing views)
+        self.cover_src: str | None = None  # data: URI of the MP3 cover, already read for the panel
+        self.listeners: list[Callable[[], None]] = []  # other views to repaint on track/play-state change
         self.playing = False
         self.duration = 0.0
         self.shuffle = self.repeat = False
@@ -126,6 +138,7 @@ class Player:
 
     def show_placeholder(self) -> None:
         self.cover.classes(replace="yt-cover w-full overflow-hidden shrink-0")
+        self.cover_src = None
         self.cover.clear()
         with self.cover:
             ui.label("portada")
@@ -137,9 +150,10 @@ class Player:
         if not found:
             return
         data, mime = found
+        self.cover_src = f"data:{mime};base64,{base64.b64encode(data).decode()}"
         self.cover.clear()
         with self.cover:
-            attrs(ui.element("img"), src=f"data:{mime};base64,{base64.b64encode(data).decode()}", alt="portada") \
+            attrs(ui.element("img"), src=self.cover_src, alt="portada") \
                 .classes("w-full h-full object-cover")
 
     # --- library view: format filter, sortable headers, grouped rows ---
@@ -248,8 +262,8 @@ class Player:
     def play(self, e: Entry | None) -> None:
         if e is None:
             return
-        self.cur, f = e.path, e.path
-        self.title.text, self.artist.text = e.title, "" if e.artist == "—" else e.artist
+        self.cur, f, self.entry = e.path, e.path, e
+        self.title.text, self.artist.text = now_playing(e)
         self.duration = e.duration or 0.0
         self.dur_label.text = hhmmss(e.duration) if e.duration else "0:00"
         src = media_url(self.root(), f)
@@ -258,6 +272,7 @@ class Player:
         self.fmt_tag.classes(replace="yt-fmt pad" + (" mp4" if is_video else ""))
         self.fmt_tag.set_visibility(True)
         if is_video:
+            self.cover_src = None  # the mini player shows no frame from the video
             self.audio.pause()
             self.cover.clear()
             self.cover.classes(replace="yt-videobox shrink-0")
@@ -274,6 +289,7 @@ class Player:
             self.audio.set_source(src)
         self.set_volume()
         self.render.refresh()
+        self.changed()
 
     async def play_path(self, path: Path) -> None:
         """Show the library containing `path` and play it (used after a download batch)."""
@@ -311,8 +327,13 @@ class Player:
 
     def set_playing(self, playing: bool) -> None:
         self.playing = playing
-        self.play_icon.text = "❚❚" if playing else "▶"
+        self.play_icon.text = play_icon(playing)
         self.render.refresh()
+        self.changed()
+
+    def changed(self) -> None:
+        for f in self.listeners:
+            f()
 
     def set_volume(self) -> None:
         el = self.media()
@@ -334,3 +355,37 @@ class Player:
             self.media().play()
         else:
             self.step(1)
+
+
+class MiniPlayer:
+    """Compact now-playing bar for the Descargar tab; drives the same Player as the Reproductor transport."""
+
+    def __init__(self, player: Player, on_open: Callable[[], None]) -> None:
+        self.player = player
+        with ui.row().classes("yt-mini yt-panel yt-line-t w-full items-center gap-3 px-6 py-1.5 no-wrap shrink-0") \
+                as self.bar:
+            self.thumb = attrs(ui.element("img"), alt="portada").classes("yt-minicover shrink-0")
+            with attrs(ui.column().classes("flex-1 min-w-0 gap-0 cursor-pointer"), title="Abrir el Reproductor") \
+                    .on("click", on_open):
+                self.title = ui.label().classes("text-[13px] font-medium truncate w-full")
+                self.artist = ui.label().classes("text-xs yt-muted truncate w-full")
+            with ui.row().classes("items-center gap-1 no-wrap shrink-0"):
+                button("◀◀", "yt-skip", player.prev)
+                with ui.element("button").classes("yt-play").on("click", player.toggle_play):
+                    self.icon = ui.label()
+                button("▶▶", "yt-skip", lambda: player.step(1))
+        player.listeners.append(self.update)
+        self.update()
+
+    def update(self) -> None:
+        summary = now_playing(self.player.entry)
+        self.bar.set_visibility(summary is not None)
+        if summary is None:
+            return
+        self.title.text, self.artist.text = summary
+        attrs(self.title, title=summary[0])
+        self.icon.text = play_icon(self.player.playing)
+        src = self.player.cover_src
+        self.thumb.set_visibility(src is not None)
+        if src:
+            attrs(self.thumb, src=src)
