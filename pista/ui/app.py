@@ -6,6 +6,7 @@ import re
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 from nicegui import app, background_tasks, core, run, ui
 
@@ -32,6 +33,7 @@ from . import theme
 from .components import Queue, about_dialog, attrs, ask_mix, button, close_dialogs, confirm_dialog, log_class, log_file_dialog, summary_dialog
 from .player import Player
 from .security import HOST, harden, pick_port
+from .session import SESSION as session
 
 QUALITIES = {"audio": ["128", "160", "192", "256", "320"], "video": ["360p", "480p", "720p", "1080p", "4K"]}
 DEFAULT_QUALITY = {"audio": "192", "video": "720p"}
@@ -60,6 +62,26 @@ async def pick_folder(start: str) -> str | None:
     return res[0] if res else None
 
 
+# The batch outlives the page (a reload builds a new one), so its UI side effects go through the session
+# to whichever page is open now, or nowhere.
+def log(msg: str, level: int = logging.INFO) -> None:
+    logger.log(level, msg)  # full line goes to the log file
+    line = f"[{time.strftime('%H:%M:%S')}] {msg}"
+    session.log_lines.append(line)
+    del session.log_lines[:-1000]
+    session.to_page("show_log", line)
+
+
+def set_status(text: str) -> None:
+    session.status = text
+    session.to_page("show_status", text)
+
+
+def set_busy(value: bool) -> None:
+    session.busy = value
+    session.to_page("show_busy")
+
+
 def safely(action, what: str) -> None:
     try:
         action()
@@ -76,20 +98,20 @@ def index() -> None:
     set_cookie_browser(prefs["browser"] if prefs["cookies"] else None)
     logger.info("v%s · yt-dlp %s · ffmpeg=%s · deno=%s", version(), yt_dlp_version, find_ffmpeg(), find_deno())
     dark = False
-    links: list[str] = []
-    link_errors: dict[str, str] = {}  # url -> why it couldn't be loaded
-    fmt, quality = "audio", "192"
-    busy = False
     log_open = False
-    last_summary: dict = {}  # kwargs for summary_dialog, reopened by «Ver resumen»
-    runner: BatchRunner | None = None  # the running batch, if any
-    log_lines: list[str] = []
+    # Batch state lives in the session (a reload must show it again); these names alias its containers.
+    links, link_errors, log_lines, last_summary = (
+        session.links, session.link_errors, session.log_lines, session.last_summary)
+    client = ui.context.client  # background tasks have no slot; UI they create must enter the page explicitly
 
-    def log(msg: str, level: int = logging.INFO) -> None:
-        logger.log(level, msg)  # full line goes to the log file
-        line = f"[{time.strftime('%H:%M:%S')}] {msg}"
-        log_lines.append(line)
-        del log_lines[:-1000]
+    # Defined before the queue: a reloaded page paints existing rows (their meta shows the format) at once.
+    def format_text() -> str:
+        return f"MP3 {session.quality} kbps" if session.fmt == "audio" else f"MP4 {session.quality}"
+
+    def fmt_short() -> str:
+        return f"MP3 {session.quality}" if session.fmt == "audio" else f"MP4 {session.quality}"
+
+    def show_log(line: str) -> None:
         last_log.text = line
         attrs(last_log, title=line)
         if log_open:
@@ -118,10 +140,10 @@ def index() -> None:
 
     @ui.refreshable
     def quality_picker() -> None:
-        ui.label("Calidad (kbps)" if fmt == "audio" else "Resolución").classes("yt-label")
+        ui.label("Calidad (kbps)" if session.fmt == "audio" else "Resolución").classes("yt-label")
         with ui.element("div").classes("yt-seg small w-full"):
-            for q in QUALITIES[fmt]:
-                button(q, "on" if q == quality else "", lambda q=q: set_quality(q))
+            for q in QUALITIES[session.fmt]:
+                button(q, "on" if q == session.quality else "", lambda q=q: set_quality(q))
 
     # ---------- title bar ----------
     with ui.element("div").classes("yt-bar"):
@@ -183,13 +205,13 @@ def index() -> None:
                 with ui.column().classes("w-full gap-1.5"):
                     ui.label("Carpeta de salida").classes("yt-label")
                     with ui.row().classes("w-full gap-1.5 no-wrap"):
-                        outdir = ui.input(value=str(default_outdir())).props("borderless dense") \
+                        outdir = ui.input(value=session.outdir or str(default_outdir())).props("borderless dense") \
                             .classes("yt-field flex-1 min-w-0 h-[34px]")
                         button("Cambiar", "yt-btn text-xs h-[34px]", lambda: change_outdir())
                 with ui.column().classes("w-full gap-1.5"):
                     ui.label("Formato").classes("yt-label")
                     with ui.element("div").classes("yt-seg two w-full"):
-                        f_btns = {f: button(label, "on" if f == fmt else "", lambda f=f: set_format(f))
+                        f_btns = {f: button(label, "on" if f == session.fmt else "", lambda f=f: set_format(f))
                                   for f, label in FORMATS.items()}
                 with ui.column().classes("w-full gap-1.5"):
                     quality_picker()
@@ -230,7 +252,7 @@ def index() -> None:
                 for h, cls in (("", ""), ("", ""), ("Título", ""), ("Estado", "text-center"), ("", ""), ("", "")):
                     ui.label(h).classes(cls)
             with ui.column().classes("flex-1 min-h-0 overflow-auto px-4 pb-2 gap-1 w-full no-wrap"):
-                queue = Queue(on_change=lambda: update_counter(), fmt_label=lambda: fmt_short())
+                queue = Queue(on_change=lambda: update_counter(), fmt_label=lambda: fmt_short(), model=session.queue)
                 queue.on_retry = lambda track_id: retry([track_id])
                 queue.on_remove = lambda track_id: remove_item(track_id)
 
@@ -238,7 +260,7 @@ def index() -> None:
             with ui.column().classes("yt-panel yt-line-t w-full gap-0 shrink-0 no-wrap"):
                 with ui.row().classes("w-full items-center gap-2.5 py-[7px] pl-6 pr-4 no-wrap"):
                     ui.label("Registro").classes("yt-label")
-                    last_log = ui.label("Listo.").classes("yt-logline flex-1 min-w-0")
+                    last_log = ui.label(log_lines[-1] if log_lines else "Listo.").classes("yt-logline flex-1 min-w-0")
                     with ui.element("button").classes("yt-link").on("click", lambda: toggle_log()):
                         log_toggle = ui.label("Expandir")
                     button("Reportar un problema", "yt-link", lambda: open_url(issue_url(version(), current_os()))) \
@@ -258,7 +280,7 @@ def index() -> None:
             with ui.row().classes("yt-panel yt-line-t w-full items-center gap-3 px-6 py-3 no-wrap shrink-0"):
                 with ui.column().classes("flex-1 min-w-0 gap-1.5"):
                     with ui.row().classes("w-full justify-between text-xs yt-muted no-wrap gap-3"):
-                        status = ui.label("Listo.").classes("truncate min-w-0")
+                        status = ui.label(session.status).classes("truncate min-w-0")
                         total_label = ui.label("0%").classes("mono")
                     with ui.element("div").classes("yt-track big w-full"):
                         total_fill = ui.element("div").classes("yt-fill")
@@ -342,28 +364,20 @@ def index() -> None:
             outdir.value = path
 
     def set_quality(q: str) -> None:
-        nonlocal quality
-        quality = q
+        session.quality = q
         quality_picker.refresh()
         for tid in queue.rows:  # row meta shows the format
             queue.set_state(tid, *queue.state[tid])
 
     def set_format(f: str) -> None:
-        nonlocal fmt
-        if busy and f != fmt:
+        if session.busy and f != session.fmt:
             ui.notify("Cambia el formato cuando termine la descarga en curso.", type="warning")
             return
-        fmt = f
+        session.fmt = f
         queue.set_format(f)  # «Listo» is per format: re-evaluate every row
         for k, b in f_btns.items():
             b.classes(replace="on" if k == f else "")
         set_quality(DEFAULT_QUALITY[f])
-
-    def format_text() -> str:
-        return f"MP3 {quality} kbps" if fmt == "audio" else f"MP4 {quality}"
-
-    def fmt_short() -> str:
-        return f"MP3 {quality}" if fmt == "audio" else f"MP4 {quality}"
 
     def on_cookies_change() -> None:
         prefs.update(cookies=bool(cookies_switch.value), browser=cookies_browser.value)
@@ -375,6 +389,7 @@ def index() -> None:
     cookies_switch.on_value_change(on_cookies_change)
     cookies_browser.on_value_change(on_cookies_change)
 
+    outdir.on_value_change(lambda: setattr(session, "outdir", outdir.value))
     mix_limit.on_value_change(lambda: setattr(mix_value, "text", f"{int(mix_limit.value)} / 50"))
 
     def update_counter() -> None:
@@ -388,27 +403,25 @@ def index() -> None:
         cooldown_bar.set_visibility(cooling)
         if cooling:
             cooldown_text.text = BREAKER.message()
-            if runner is not None:
-                status.text = BREAKER.message()
+            if session.runner is not None:
+                set_status(BREAKER.message())
+        runner = session.runner
         if runner is None or runner.current is None:
             return
         # pct/phase are written by the download thread; only this timer touches the UI.
         queue.set_state(runner.current, "running", runner.pct, phase=runner.phase)
-        status.text = batch_status(runner.phase, *runner.position, format_text())
+        set_status(batch_status(runner.phase, *runner.position, format_text()))
         set_total()
 
     def set_total() -> None:
-        pct = progress_total(queue)  # download/conversion weighted per item
+        pct = progress_total(session.queue)  # download/conversion weighted per item
         total_label.text = f"{pct:.0f}%"
         total_fill.style(f"width: {pct:.0f}%")
 
     ui.timer(0.2, poll)
-    if not has_ffmpeg():
-        log(FFMPEG_MISSING, logging.WARNING)
 
-    def set_busy(value: bool) -> None:
-        nonlocal busy
-        busy = value
+    def show_busy() -> None:
+        value = session.busy
         stop_btn.set_visibility(value)  # «Descargar seleccionadas» stays enabled: it appends to the batch
         running_notice.set_visibility(value)
         load_label.text = "Cargar a la cola" if value else "Cargar"
@@ -442,40 +455,38 @@ def index() -> None:
         dup_pending = sum(queue.state[tid][0] in ("queued", "stopped", "error") for tid in set(dups))
         if dups:
             queue._changed()
-        added = queue.add_tracks(found, new=busy)
+        added = queue.add_tracks(found, new=session.busy)
         loaded = {o.url for o in outcomes if o.tracks}
         set_links([u for u in links if u not in loaded])  # failed or cancelled links stay, with their reason
-        text, kind = load_message(outcomes, added, dup_pending, FMT_NAME[fmt])
+        text, kind = load_message(outcomes, added, dup_pending, FMT_NAME[session.fmt])
         log(text, logging.ERROR if kind == "error" else logging.WARNING if kind == "warning" else logging.INFO)
         ui.notify(text, type={"ok": "positive", "info": "info", "warning": "warning", "error": "negative"}[kind],
                   multi_line=True)
-        if not busy:
-            status.text = text if kind in ("error", "warning") else f"{len(queue.tracks)} pista(s) en la cola."
+        if not session.busy:
+            set_status(text if kind in ("error", "warning") else f"{len(queue.tracks)} pista(s) en la cola.")
             set_total()
 
     def stop() -> None:
-        if runner is not None:
-            runner.stop()
+        if session.runner is not None:
+            session.runner.stop()
         close_dialogs()  # preview, log file and Mix question
 
     def remove_item(track_id: str) -> None:
-        if runner is not None:
-            runner.cancel_item(track_id)  # the worker drops it when the download aborts
+        if session.runner is not None:
+            session.runner.cancel_item(track_id)  # the worker drops it when the download aborts
         track = queue.remove(track_id)
         if track:
             log(f"− {track.title} — quitada de la cola")
         set_total()
 
     def clear_queue() -> None:
-        removed = queue.clear_finished(keep=runner.current if runner else None)
+        removed = queue.clear_finished(keep=session.runner.current if session.runner else None)
         log(f"Cola limpiada: {removed} quitadas.")
         set_total()
 
-    page = ui.context.client  # background tasks have no slot; UI they create must enter the page explicitly
-
-    async def start_in_page() -> None:
-        with page.layout:
-            await start_download()
+    def in_page(action) -> None:
+        with client.layout:
+            action()
 
     def retry(track_ids: list[str]) -> None:
         for tid in track_ids:
@@ -488,13 +499,14 @@ def index() -> None:
             title = next(t.title for t in queue.tracks if t.id == tid)
             log(f"↻ {title} — reintentando ({queue.fails.get(tid, 0) + 1}/{MAX_ATTEMPTS})", logging.WARNING)
         queue.on_change()
-        if not busy:
-            background_tasks.create(start_in_page())  # otherwise the running batch picks them up
+        if not session.busy:
+            background_tasks.create(start_download())  # otherwise the running batch picks them up
 
     def make_plan(consent: bool = False):
         out = Path((outdir.value or "").strip()).expanduser()
         items = [(t, queue.state[t.id][0], bool(queue.checked.get(t.id))) for t in queue.tracks]
-        return plan_download(items, fmt, quality, archived_ids(out / ARCHIVES[fmt]), busy, consent)
+        return plan_download(items, session.fmt, session.quality, archived_ids(out / ARCHIVES[session.fmt]),
+                             session.busy, consent)
 
     async def confirm_and_start() -> None:
         if not queue.tracks:
@@ -510,54 +522,68 @@ def index() -> None:
         if plan is None:
             return
         for tid in plan.skip:  # already in this format's archive: no network needed
-            queue.mark_done(tid, fmt, None, 0)
+            queue.mark_done(tid, session.fmt, None, 0)
         for tid in plan.pending:
             if tid in queue.state and queue.state[tid][0] == "stopped":
                 queue.set_state(tid, "queued")
-        if busy:
+        if session.busy:
             log(f"{plan.count} pista(s) añadidas a la descarga en curso.")
         else:
             await start_download()
 
     async def start_download() -> None:
-        if busy:
+        # Only one batch across pages: a second page appends to it (see confirm_and_start), never runs another.
+        if not has_ffmpeg() or not (outdir.value or "").strip() or not session.begin():
             return
-        if not has_ffmpeg() or not (outdir.value or "").strip():
-            return
-        nonlocal runner
         out = str(Path(outdir.value.strip()).expanduser())
-        runner = BatchRunner(queue, download, out=out, quality=quality, fmt=fmt, run_io=run.io_bound,
-                             retry_delay=RETRY_DELAY, log=log, status=lambda text: setattr(status, "text", text),
-                             fmt_text=format_text(), on_progress=set_total)
+        # Runs to the end even if this page is reloaded meanwhile: from here on, UI goes through the session.
+        runner = session.runner = BatchRunner(
+            session.queue, download, out=out, quality=session.quality, fmt=session.fmt, run_io=run.io_bound,
+            retry_delay=RETRY_DELAY, log=log, status=set_status, fmt_text=format_text(),
+            on_progress=lambda: session.to_page("set_total"))
         set_busy(True)
         try:
             summary = await runner.run()
         except Exception as e:  # never leave the UI stuck in «descargando»
             logger.exception("batch failed")
-            ui.notify(f"La descarga se interrumpió por un error: {short_error(str(e))}", type="negative")
+            session.to_page("notify", f"La descarga se interrumpió por un error: {short_error(str(e))}", "negative")
             set_busy(False)
             return
         finally:
-            results = runner.results
-            runner = None
-        set_total()
+            session.runner = None
+        results = runner.results
+        session.to_page("set_total")
         log(f"Resumen: {summary.done} descargadas, {summary.skipped} ya estaban, {summary.failed} fallidas, "
             f"{summary.stopped} detenidas · {human_size(summary.total_bytes)} · {human_time(summary.elapsed)}")
         failed_ids = [tid for tid, r in results.items() if r.state == "error"]
         last_summary.clear()
         last_summary.update(
             summary=summary, folder=out, processed=len(results),
-            go_player=lambda: go_to_player(summary.first_new),
+            go_player=lambda: session.to_page("go_to_player", summary.first_new),
             open_folder=lambda: safely(lambda: open_path(out), "abrir la carpeta"),
-            retry_failed=(lambda: retry(failed_ids)) if failed_ids else None,
+            retry_failed=(lambda: session.to_page("retry", failed_ids)) if failed_ids else None,
         )
         set_busy(False)
-        summary_dialog(**last_summary)
+        session.to_page("show_summary")  # no page open: «Ver resumen» shows it later
 
     def go_to_player(first_new: str | None) -> None:
         show_tab("player")
         if first_new:
             ui.timer(0, lambda: player.play_path(Path(first_new)), once=True)
+
+    # Attach last: from now on the session's updates (log, status, progress, rows, summary) land here.
+    view = SimpleNamespace(
+        queue=queue, show_log=show_log, show_status=lambda text: setattr(status, "text", text),
+        set_total=set_total, show_busy=show_busy, retry=retry, go_to_player=go_to_player,
+        notify=lambda text, kind: in_page(lambda: ui.notify(text, type=kind)),
+        show_summary=lambda: in_page(lambda: summary_dialog(**last_summary)))
+    session.attach(view)
+    client.on_delete(lambda: session.detach(view))
+    set_links(list(links))
+    set_total()
+    show_busy()
+    if not has_ffmpeg():
+        log(FFMPEG_MISSING, logging.WARNING)
 
 
 def native_available() -> bool:

@@ -27,12 +27,20 @@ started from the blank page would run in parallel with the invisible one.
 
 ## Tasks
 - [x] T1 reconnect_timeout — Route: inline (one mechanical line per ui.run).
-- [ ] T2 app-level session state + page reattach — Route: delegated writer (app.py + components.py,
+- [x] T2 app-level session state + page reattach — Route: delegated writer (app.py + components.py,
       2+ non-trivial files). Checks: `.venv/bin/python -m pytest -q`; manual: start a batch, reload
       the page (browser mode), state reappears and progress continues.
 
 ## Progress / evidence
 - T1: RECONNECT_TIMEOUT = 3600 passed to both ui.run calls (NiceGUI default 3.0 s, verified in ui_run.py:59). pytest 227 passed.
+- T1 review: approved (suggestion: no test asserts ui.run gets reconnect_timeout — not added,
+  ui.run is only called from main()).
+- T2: pista/ui/session.py SESSION (state + attached pages, newest page is current, begin() single
+  batch guard); Queue paints the session model; index() attaches and detaches on client delete.
+  RED: test_session collection error; GREEN: pytest -q 302 passed. Simulated reload (NiceGUI user
+  simulation, scratch) showed rows/progress/status/log and the summary dialog on the new page; it
+  caught a NameError (fmt_short defined after Queue) that was fixed. Not verified in a real window.
+  "Descargar seleccionadas" while busy still adds to the running batch (never a parallel one).
 
 ## Next step
-T1 inline, then T2 writer.
+User manual check in a real window (reload mid-batch), then merge to main.

@@ -10,9 +10,10 @@ from pista.core.links import is_release_url, is_video_url, open_url
 from pista.core.models import Track
 from pista.core.plan import Plan
 from pista.core.progress import row_label
-from pista.core.queue import QueueModel
 from pista.core.system import writable_dir
 from pista.core.updates import check_for_updates
+
+from .session import SharedQueue
 
 PREVIEW_DIR = writable_dir("previews")  # falls back to a temp folder if the cache can't be written
 app.add_media_files("/media", PREVIEW_DIR)
@@ -135,20 +136,29 @@ PILL = {  # state -> (pill class, bar class)
 }
 
 
-class Queue(QueueModel):
+class Queue:
     """Checkable track rows. Every row has the same fixed height and columns, whatever its state.
 
-    State lives in QueueModel (pista/core/queue.py); this class only paints it.
+    State lives in a QueueModel (pista/core/queue.py), the session's one so it survives a page reload;
+    this class only paints it. The model's data and operations are reached through the view
+    (`queue.state`, `queue.add_tracks(...)`).
     """
 
-    def __init__(self, on_change: Callable[[], None], fmt_label: Callable[[], str]) -> None:
-        super().__init__()
+    def __init__(self, on_change: Callable[[], None], fmt_label: Callable[[], str],
+                 model: SharedQueue | None = None) -> None:
+        self.model = model if model is not None else SharedQueue()
+        self.model.view = self
         self.rows: dict[str, dict] = {}
         self.on_change = on_change
         self.fmt_label = fmt_label
         self.on_retry: Callable[[str], None] = lambda track_id: None
         self.on_remove: Callable[[str], None] = lambda track_id: None
         self.render()
+
+    def __getattr__(self, name: str):
+        if name == "model":  # not set yet: don't recurse
+            raise AttributeError(name)
+        return getattr(self.model, name)
 
     def _changed(self) -> None:
         self.render.refresh()
