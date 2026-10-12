@@ -8,6 +8,7 @@ import logging
 import random
 import threading
 import time
+import unicodedata
 import weakref
 from collections import Counter
 from collections.abc import Awaitable, Callable
@@ -25,6 +26,17 @@ PACE_MIN, PACE_MAX = 8, 15
 
 STATES = ("queued", "running", "done", "skipped", "error", "stopped")
 FINISHED = ("done", "skipped", "error", "stopped")
+
+
+def _fold(text: str) -> str:
+    """Lowercase without accents, so «dias» finds «Días»."""
+    return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c)).casefold()
+
+
+def matches(t: Track, query: str) -> bool:
+    """Queue search: a substring of the title or channel, ignoring case and accents."""
+    q = _fold(query.strip())
+    return not q or q in _fold(f"{t.title} {t.channel}")
 
 
 class QueueModel:
@@ -45,6 +57,7 @@ class QueueModel:
         self.sizes: dict[str, int] = {}
         self.new: set[str] = set()
         self.phase: dict[str, str] = {}  # only for «running» rows: downloading | converting | merging
+        self.query = ""  # queue search; only hides rows, never changes selection or downloads
 
     # --- hooks for the UI ---
     def _changed(self) -> None:
@@ -95,8 +108,14 @@ class QueueModel:
                 d.pop(k, None)
         self.new -= ids
 
+    def visible(self) -> list[Track]:
+        """Rows matching the search (all of them when it is empty)."""
+        return [t for t in self.tracks if matches(t, self.query)]
+
     def select_all(self, value: bool) -> None:
-        self.checked = {t.id: value for t in self.tracks}
+        """«Todas/Ninguna»: only the rows the search shows."""
+        for t in self.visible():
+            self.checked[t.id] = value
         self._changed()
 
     def toggle(self, track_id: str) -> None:

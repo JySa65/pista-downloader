@@ -167,6 +167,10 @@ class Queue:
     def _state_changed(self, track_id: str) -> None:
         self._paint(track_id)
 
+    def search(self, query: str | None) -> None:
+        self.model.query = query or ""
+        self.render.refresh()
+
     def meta(self, t: Track) -> str:
         size = self.sizes.get(t.id)
         return f"{t.channel} · {hhmmss(t.duration)} · {self.fmt_label()}" + (f" · {human_size(size)}" if size else "")
@@ -213,7 +217,10 @@ class Queue:
             with ui.element("div").classes("h-full w-full flex items-center justify-center"):
                 ui.label("Pega uno o más links y pulsa «Cargar».").classes("text-[13px] yt-subtle")
             return
-        for t in self.tracks:
+        shown = self.visible()  # filtered-out rows get no element, so repaints (_paint) skip them
+        if not shown:
+            ui.label("Nada coincide con la búsqueda.").classes("text-[13px] yt-subtle self-center py-10")
+        for t in shown:
             on = self.checked[t.id]
             el = ui.element("div").classes("yt-row").on("click", lambda t=t: self.toggle(t.id))
             with el:

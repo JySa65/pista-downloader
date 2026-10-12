@@ -243,11 +243,15 @@ def index() -> None:
                     ui.label("Cola").classes("text-lg font-semibold shrink-0")
                     counter = ui.label().classes("text-[13px] yt-muted truncate min-w-0")
                 with ui.row().classes("gap-1 items-center no-wrap shrink-0"):
-                    button("Todas", "yt-link", lambda: queue.select_all(True))
-                    button("Ninguna", "yt-link", lambda: queue.select_all(False))
+                    button("Todas", "yt-link", lambda: queue.select_all(True)).props(
+                        'title="Marca las pistas visibles (las que coinciden con la búsqueda)"')
+                    button("Ninguna", "yt-link", lambda: queue.select_all(False)).props(
+                        'title="Desmarca las pistas visibles (las que coinciden con la búsqueda)"')
                     ui.element("div").classes("yt-divider")
                     button("Limpiar cola", "yt-btn yt-sm", lambda: clear_queue()).props(
                         'title="Quita las terminadas, las fallidas y las desmarcadas"')
+                    ui.input(placeholder="Buscar", value=session.queue.query, on_change=lambda e: queue.search(e.value)) \
+                        .props("borderless dense").classes("yt-field w-[180px] h-8 ml-2")
             with ui.element("div").classes("yt-qhead shrink-0"):
                 for h, cls in (("", ""), ("", ""), ("Título", ""), ("Estado", "text-center"), ("", ""), ("", "")):
                     ui.label(h).classes(cls)
